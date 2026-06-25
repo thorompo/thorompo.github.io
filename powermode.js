@@ -1,7 +1,6 @@
 // Power Mode — particle burst + screen shake + combo on every keystroke.
 // Standalone module: exposes window.PowerMode.trigger(element, correct).
 (function () {
-  const COMBO_TIMEOUT_MS = 10000;
   const PARTICLES_CORRECT = 14;
   const PARTICLES_WRONG = 8;
   const SHAKE_DECAY = 0.88;
@@ -14,7 +13,7 @@
   let canvas, ctx;
   let particles = [];
   let combo = 0;
-  let lastKeyTime = 0;
+  let maxCombo = 0;
   let shakeIntensity = 0;
   let comboBadge;
   let shakeTarget = null;
@@ -182,11 +181,6 @@
       shakeTarget.style.transform = '';
     }
 
-    if (combo > 0 && performance.now() - lastKeyTime > COMBO_TIMEOUT_MS) {
-      combo = 0;
-      updateBadge();
-    }
-
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.vy += 0.14;
@@ -224,11 +218,17 @@
     spawnAt(rect, correct);
     if (correct) {
       combo++;
+      if (combo > maxCombo) maxCombo = combo;
     } else {
-      combo = Math.max(0, combo - 2);
+      combo = 0;
     }
-    lastKeyTime = performance.now();
     shakeIntensity = Math.min(2 + combo * 0.18, SHAKE_MAX);
+    updateBadge();
+  }
+
+  function resetStats() {
+    combo = 0;
+    maxCombo = 0;
     updateBadge();
   }
 
@@ -236,6 +236,8 @@
     trigger,
     setEnabled,
     isEnabled: () => enabled,
+    getMaxCombo: () => maxCombo,
+    resetStats,
   };
 
   if (document.readyState === 'loading') {

@@ -26,6 +26,7 @@ const resetBtn = document.getElementById('resetBtn');
 const loadingMsg = document.getElementById('loadingMsg');
 const wpmResultEl = document.getElementById('wpmResult');
 const accResultEl = document.getElementById('accResult');
+const comboResultEl = document.getElementById('comboResult');
 const hiddenInput = document.getElementById('hiddenInput');
 
 // ---------- State ----------
@@ -228,6 +229,7 @@ function resetState() {
 
 function startTest() {
   resetState();
+  if (window.PowerMode) window.PowerMode.resetStats();
   typingArea.classList.remove('hidden');
   typingArea.style.paddingBottom = '50vh';
 
@@ -340,6 +342,9 @@ function endTest() {
 
   wpmResultEl.innerText = wpm;
   accResultEl.innerText = accuracy;
+  if (comboResultEl) {
+    comboResultEl.innerText = window.PowerMode ? window.PowerMode.getMaxCombo() : 0;
+  }
 
   typingArea.style.paddingBottom = '2rem';
   statsDisplay.classList.remove('hidden');
@@ -374,7 +379,7 @@ function recordKeystroke(typedChar, now) {
   if (ls && !ls.startTime) ls.startTime = now;
 
   const currentCharEl = state.characters[state.currentIndex];
-  const expected = currentCharEl.innerText;
+  const expected = currentCharEl.textContent;
 
   currentCharEl.classList.remove('active');
   const isCorrect = typedChar === expected;
