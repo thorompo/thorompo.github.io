@@ -1,0 +1,211 @@
+body {
+  font-family: 'Courier New', Courier, monospace;
+  background: #323437;
+  color: #646669;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.container {
+  width: 100%;
+  max-width: 900px;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#setupDiv h2 {
+  color: #d1d0c5;
+}
+
+textarea {
+  width: 100%;
+  height: 250px;
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #2c2e31;
+  color: #d1d0c5;
+  border: 1px solid #646669;
+  border-radius: 8px;
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+button {
+  padding: 12px 24px;
+  cursor: pointer;
+  background: #e2b714;
+  color: #323437;
+  border: none;
+  border-radius: 5px;
+  font-weight: bold;
+  font-size: 1.1rem;
+  transition: opacity 0.2s;
+  width: 100%;
+}
+
+button:hover {
+  opacity: 0.8;
+}
+
+button:disabled {
+  background: #646669;
+  cursor: not-allowed;
+}
+
+#typingArea {
+  outline: none;
+  user-select: none;
+  padding-bottom: 50vh;
+}
+
+.line-group {
+  background: #2c2e31;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border-left: 4px solid #646669;
+  transition: border-color 0.3s;
+}
+
+.line-group.active-group {
+  border-left-color: #e2b714;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Increased line height so the subscript under each word fits */
+.typing-line {
+  font-size: 1.5rem;
+  line-height: 2.5;
+}
+
+.trans-container {
+  display: none;
+  margin-top: 15px;
+  padding-top: 10px;
+  border-top: 1px dashed #646669;
+}
+
+.trans-container.revealed {
+  display: block;
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.trans-hu {
+  font-size: 1rem;
+  color: #79a6a6;
+  margin-bottom: 0.3rem;
+  font-family: Arial, sans-serif;
+}
+
+.trans-en {
+  font-size: 1rem;
+  color: #a68a79;
+  font-family: Arial, sans-serif;
+}
+
+/* Per-line statistics under the translation */
+.line-stats {
+  display: none;
+  margin-top: 0.6rem;
+  font-size: 0.95rem;
+  color: #e2b714;
+  font-family: 'Courier New', Courier, monospace;
+}
+
+.trans-container.revealed .line-stats {
+  display: block;
+}
+
+.line-stats .stat-label {
+  color: #646669;
+}
+
+/* Word and subscript styles */
+.word {
+  position: relative;
+  display: inline-block;
+}
+
+.word-subscript {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: -1.2rem;
+  font-size: 0.7rem;
+  font-family: Arial, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.word-subscript .sub-hu { color: #79a6a6; }
+.word-subscript .sub-en { color: #a68a79; }
+
+/* When the word is complete, show the subscript */
+.word.completed .word-subscript {
+  display: block;
+  animation: fadeIn 0.3s ease;
+}
+
+.char {
+  position: relative;
+}
+
+.char.correct {
+  color: #d1d0c5;
+}
+
+.char.incorrect {
+  color: #ca4754;
+  text-decoration: underline;
+  background: rgba(202, 71, 84, 0.2);
+}
+
+.char.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  height: 100%;
+  background-color: #e2b714;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+#statsDisplay {
+  color: #e2b714;
+  font-size: 1.5rem;
+  margin-top: 20px;
+  text-align: center;
+}
+
+.stat-box {
+  background: #2c2e31;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+#loadingMsg {
+  color: #e2b714;
+  text-align: center;
+  font-size: 1.2rem;
+  margin-top: 10px;
+}
