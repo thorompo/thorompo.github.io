@@ -419,7 +419,7 @@ function handleReset() {
 
 function focusInput() {
   hiddenInput.value = '';
-  hiddenInput.focus({ preventScroll: true });
+  hiddenInput.focus();
 }
 
 function processTypedChar(char) {
@@ -475,22 +475,23 @@ function handleInputFallback() {
 // ---------- Wire up ----------
 startBtn.addEventListener('click', handleStart);
 typingArea.addEventListener('keydown', handleKeydown);
-typingArea.addEventListener('mousedown', (e) => {
-  // Keep focus on the hidden input so the mobile keyboard stays open.
-  e.preventDefault();
-  focusInput();
-});
-typingArea.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  focusInput();
-}, { passive: false });
 hiddenInput.addEventListener('keydown', handleKeydown);
 hiddenInput.addEventListener('beforeinput', handleBeforeInput);
 hiddenInput.addEventListener('input', handleInputFallback);
-hiddenInput.addEventListener('blur', () => {
-  // If a test is in progress, snap focus back so the keyboard reopens.
-  if (state.isTestActive) {
-    setTimeout(() => focusInput(), 0);
+
+// Any tap anywhere on the page during an active test should re-focus the
+// hidden input, so the mobile keyboard stays up. Must run from the user
+// gesture, so use touchend/click (not blur).
+function refocusFromGesture(event) {
+  if (!state.isTestActive) return;
+  // Don't steal focus from the reset button or other interactive controls.
+  const target = event.target;
+  if (target && target.closest && target.closest('button, a, input, textarea, select')) {
+    if (target !== hiddenInput) return;
   }
-});
+  focusInput();
+}
+document.addEventListener('touchend', refocusFromGesture);
+document.addEventListener('click', refocusFromGesture);
+
 resetBtn.addEventListener('click', handleReset);

@@ -211,8 +211,7 @@ button:disabled {
 }
 
 /* Off-screen input used to summon the mobile virtual keyboard.
-   Must stay focusable (no display:none, no visibility:hidden) and
-   sit at the top of the viewport so iOS won't auto-scroll on focus. */
+   Must stay focusable (no display:none / visibility:hidden / disabled). */
 #hiddenInput {
   position: fixed;
   top: 0;
@@ -228,7 +227,13 @@ button:disabled {
   color: transparent;
   caret-color: transparent;
   z-index: -1;
+  -webkit-appearance: none;
+  appearance: none;
   pointer-events: none;
+}
+
+#hiddenInput:focus {
+  outline: none;
 }
 
 #typingArea {
