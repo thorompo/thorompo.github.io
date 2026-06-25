@@ -7,6 +7,15 @@ const WORD_SPLIT_REGEX = /([\p{L}]+)/gu;
 const MIN_MINUTES = 0.0001;
 const CHARS_PER_WORD = 5;
 
+// Whitelist: latin letters (DE/EN/HU diacritics), digits, whitespace,
+// common punctuation and basic math symbols. Everything else is stripped
+// from pasted input (emoji, non-latin scripts, exotic symbols, etc.).
+const SANITIZE_REGEX = /[^\p{Script=Latin}\p{N}\s.,;:!?'"„“”‚‘’()\[\]\-–—…+*/=%<>^]/gu;
+
+function sanitizeInput(text) {
+  return text.replace(SANITIZE_REGEX, '');
+}
+
 // ---------- DOM references ----------
 const setupDiv = document.getElementById('setupDiv');
 const typingArea = document.getElementById('typingArea');
@@ -231,7 +240,7 @@ function startTest() {
 }
 
 async function handleStart() {
-  const rawText = customTextInput.value.trim();
+  const rawText = sanitizeInput(customTextInput.value).trim();
   if (!rawText) return;
 
   // Focus the hidden input synchronously while we're still inside the
