@@ -1,2 +1,2 @@
-# thorompo.github.io
-thorompo.github.io
+### Tibor's shorts
+[Type to learn](./index.html)
