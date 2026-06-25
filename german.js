@@ -56,18 +56,22 @@ function extractUniqueWords(text) {
   return [...new Set(matches.map(w => w.toLowerCase()))];
 }
 
+async function translateWords(words, targetLang) {
+  return Promise.all(words.map(word => translateText(word, targetLang)));
+}
+
 async function fetchTranslations(cleanText, uniqueWords) {
   const [huText, enText, wordsHu, wordsEn] = await Promise.all([
     translateText(cleanText, 'hu'),
     translateText(cleanText, 'en'),
-    translateText(uniqueWords.join('\n'), 'hu'),
-    translateText(uniqueWords.join('\n'), 'en'),
+    translateWords(uniqueWords, 'hu'),
+    translateWords(uniqueWords, 'en'),
   ]);
   return {
     huLines: huText.split('\n'),
     enLines: enText.split('\n'),
-    wordsHu: wordsHu.split('\n'),
-    wordsEn: wordsEn.split('\n'),
+    wordsHu,
+    wordsEn,
   };
 }
 
@@ -121,8 +125,8 @@ function createTypingLine(targetText, lineIndex, wordDict, isLastLine) {
 
   for (const token of tokens) {
     if (!token) continue;
-TEST_REGEX.test(token)) {
-      WORD_REGEX.lastIndex = 0; // reset stateful regex
+
+    if (WORD_TEST_REGEX.test(token)) {
       const { wordSpan, charSpans: wordChars } = createWordSpan(token, lineIndex, wordDict);
       typingDiv.appendChild(wordSpan);
       charSpans.push(...wordChars);
