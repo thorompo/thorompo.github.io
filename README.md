@@ -1,2 +1,2 @@
-### Tibor's shorts
-[Type to learn](./index.html)
+# Tibor's github shorts:
+##  [Type to learn](./index.html)
