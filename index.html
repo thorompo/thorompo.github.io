@@ -1,29 +1,264 @@
-<style>
-  body { font-family: monospace; background: #323437; color: #646669; padding: 2rem; }
-  .hidden { display: none !important; }
-  #typingArea { font-size: 1.5rem; max-width: 800px; line-height: 1.5; outline: none; }
-  .char { position: relative; }
-  .char.correct { color: #d1d0c5; }
-  .char.incorrect { color: #ca4754; text-decoration: underline; }
-  .char.active::before { /* Villogó kurzor */
-    content: ''; position: absolute; left: 0; bottom: 0; width: 2px; height: 100%;
-    background-color: #e2b714; animation: blink 1s infinite;
-  }
-  @keyframes blink { 50% { opacity: 0; } }
-  textarea { width: 100%; height: 100px; margin-bottom: 10px; }
-  button { padding: 10px 20px; cursor: pointer; }
-  #statsDisplay { color: #e2b714; font-size: 1.2rem; margin-top: 20px; }
-</style>
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saját Gépelés Teszt</title>
+  <style>
+    /* Alapvető sötét téma, hasonló a Monkeytype-hoz */
+    body { 
+      font-family: 'Courier New', Courier, monospace; 
+      background: #323437; 
+      color: #646669; 
+      padding: 2rem; 
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 800px;
+      margin-top: 50px;
+    }
 
-<div id="setupDiv">
-  <textarea id="customTextInput" placeholder="Illeszd be a szöveget ide..."></textarea>
-  <button id="startBtn">Gépelés megkezdése</button>
-</div>
+    .hidden { 
+      display: none !important; 
+    }
 
-<div id="typingArea" class="hidden" tabindex="0"></div>
+    /* Gépelési terület stílusai */
+    #typingArea { 
+      font-size: 1.5rem; 
+      line-height: 1.5; 
+      outline: none; 
+      user-select: none;
+    }
+    
+    .char { 
+      position: relative; 
+    }
+    
+    .char.correct { 
+      color: #d1d0c5; 
+    }
+    
+    .char.incorrect { 
+      color: #ca4754; 
+      text-decoration: underline; 
+    }
+    
+    /* Villogó kurzor a soron következő karakternél */
+    .char.active::before { 
+      content: ''; 
+      position: absolute; 
+      left: 0; 
+      bottom: 0; 
+      width: 2px; 
+      height: 100%;
+      background-color: #e2b714; 
+      animation: blink 1s infinite;
+    }
+    
+    @keyframes blink { 
+      50% { opacity: 0; } 
+    }
 
-<div id="statsDisplay" class="hidden">
-  <p>Sebesség: <span id="wpmResult">0</span> WPM</p>
-  <p>Pontosság: <span id="accResult">0</span>%</p>
-  <button id="resetBtn">Újra</button>
-</div>
+    /* Űrlap elemek stílusai */
+    textarea { 
+      width: 100%; 
+      height: 150px; 
+      margin-bottom: 15px; 
+      padding: 10px;
+      background: #2c2e31;
+      color: #d1d0c5;
+      border: 1px solid #646669;
+      border-radius: 5px;
+      font-family: inherit;
+      resize: vertical;
+    }
+
+    button { 
+      padding: 10px 20px; 
+      cursor: pointer; 
+      background: #e2b714;
+      color: #323437;
+      border: none;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 1rem;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.8;
+    }
+
+    /* Statisztika kijelző */
+    #statsDisplay { 
+      color: #e2b714; 
+      font-size: 1.5rem; 
+      margin-top: 20px; 
+      text-align: center;
+    }
+    
+    .stat-box {
+      background: #2c2e31;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div id="setupDiv">
+      <h2>Saját gépelés teszt</h2>
+      <textarea id="customTextInput" placeholder="Illeszd be ide a szöveget, amit gépelni szeretnél..."></textarea>
+      <button id="startBtn">Gépelés megkezdése</button>
+    </div>
+
+    <div id="typingArea" class="hidden" tabindex="0"></div>
+
+    <div id="statsDisplay" class="hidden">
+      <div class="stat-box">
+        <p>Sebesség: <strong id="wpmResult">0</strong> WPM</p>
+        <p>Pontosság: <strong id="accResult">0</strong>%</p>
+      </div>
+      <button id="resetBtn">Új teszt indítása</button>
+    </div>
+  </div>
+
+  <script>
+    // DOM elemek lekérése
+    const setupDiv = document.getElementById('setupDiv');
+    const typingArea = document.getElementById('typingArea');
+    const statsDisplay = document.getElementById('statsDisplay');
+    const customTextInput = document.getElementById('customTextInput');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // Állapotváltozók
+    let characters = [];
+    let currentIndex = 0;
+    let mistakes = 0;
+    let startTime = null;
+    let isTestActive = false;
+
+    // 1. Teszt inicializálása
+    startBtn.addEventListener('click', () => {
+      const text = customTextInput.value.trim();
+      if (!text) {
+        alert("Kérlek, illessz be valamilyen szöveget!");
+        return;
+      }
+
+      // Felület cseréje
+      setupDiv.classList.add('hidden');
+      typingArea.classList.remove('hidden');
+      typingArea.innerHTML = ''; // Előző szöveg törlése
+      
+      // Szöveg karakterekre bontása és span-ekbe csomagolása
+      characters = text.split('').map((char, index) => {
+        const span = document.createElement('span');
+        span.innerText = char;
+        span.classList.add('char');
+        // Az első karakter kapja meg a kurzort
+        if (index === 0) span.classList.add('active'); 
+        typingArea.appendChild(span);
+        return span;
+      });
+
+      // Állapotok alaphelyzetbe állítása
+      currentIndex = 0;
+      mistakes = 0;
+      startTime = null;
+      isTestActive = true;
+      
+      // Fókuszálunk a div-re, hogy érzékelje a billentyűleütéseket
+      typingArea.focus();
+    });
+
+    // 2. Billentyűzet események kezelése
+    typingArea.addEventListener('keydown', (e) => {
+      if (!isTestActive || e.ctrlKey || e.metaKey || e.altKey) return;
+      
+      // Különleges gombok (pl. Shift, CapsLock, nyilak) ignorálása, kivéve a Backspace
+      if (e.key.length !== 1 && e.key !== 'Backspace') return;
+
+      // Az alapértelmezett böngésző viselkedés blokkolása (pl. szóköz görgetés)
+      e.preventDefault();
+
+      // Időzítő indítása legelső gombnyomásra
+      if (!startTime && e.key !== 'Backspace') {
+        startTime = new Date();
+      }
+
+      // Visszatörlés (Backspace) logikája
+      if (e.key === 'Backspace') {
+        if (currentIndex > 0) {
+          characters[currentIndex].classList.remove('active'); // Kurzor levétele az aktuálisról
+          currentIndex--; // Visszalépés
+          characters[currentIndex].classList.remove('correct', 'incorrect'); // Osztályok törlése
+          characters[currentIndex].classList.add('active'); // Kurzor rárakása az előzőre
+        }
+        return;
+      }
+
+      // Karakterek összehasonlítása
+      const expectedChar = characters[currentIndex].innerText;
+      const typedChar = e.key;
+
+      characters[currentIndex].classList.remove('active');
+
+      if (typedChar === expectedChar) {
+        characters[currentIndex].classList.add('correct');
+      } else {
+        characters[currentIndex].classList.add('incorrect');
+        mistakes++; // Hiba regisztrálása
+      }
+
+      currentIndex++;
+
+      // Vizsgálat: Vége a tesztnek?
+      if (currentIndex === characters.length) {
+        endTest();
+      } else {
+        // Ha nincs vége, a következő karakter kapja a kurzort
+        characters[currentIndex].classList.add('active');
+      }
+    });
+
+    // 3. Teszt befejezése és statisztika számolása
+    function endTest() {
+      isTestActive = false;
+      const endTime = new Date();
+      const timeElapsed = (endTime - startTime) / 1000 / 60; // Eltelt idő percben
+      
+      const totalKeystrokes = characters.length;
+      const correctKeystrokes = totalKeystrokes - mistakes;
+      
+      // WPM (Words Per Minute) számítás: 1 szó = 5 karakter
+      const wpm = Math.round((correctKeystrokes / 5) / timeElapsed);
+      
+      // Pontosság számítás
+      const accuracy = Math.round((correctKeystrokes / totalKeystrokes) * 100);
+
+      // Eredmények kiírása
+      document.getElementById('wpmResult').innerText = wpm > 0 ? wpm : 0;
+      document.getElementById('accResult').innerText = accuracy > 0 ? accuracy : 0;
+      
+      // Felület cseréje
+      typingArea.classList.add('hidden');
+      statsDisplay.classList.remove('hidden');
+    }
+
+    // 4. Újrakezdés gomb
+    resetBtn.addEventListener('click', () => {
+      statsDisplay.classList.add('hidden');
+      setupDiv.classList.remove('hidden');
+      customTextInput.value = ''; // Szövegmező kiürítése
+    });
+  </script>
+</body>
+</html>
