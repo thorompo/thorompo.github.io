@@ -3,18 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interactive Language Learning Typing</title>
-  <link rel="stylesheet" href="german.css?v=2">
+  <title>German Language Trainer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
+    .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+  </style>
+  <link rel="stylesheet" href="german.css?v=3">
 </head>
-<body>
+<body class="flex flex-col items-center min-h-screen p-6">
 
-  <div class="container">
-    <div id="setupDiv">
-      <h2>Interactive Language Learning (with subscripts)</h2>
-      <p style="color:#d1d0c5;">Paste your German text! The Hungarian and English meaning appears under each typed word, and the full sentence translation appears at the end of each line.</p>
+  <header class="text-center mb-10">
+    <h1 class="text-5xl font-bold mb-4 text-sky-400 glow">German Language Trainer</h1>
+    <p class="text-gray-400">Interactive typing with Hungarian &amp; English subscripts</p>
+  </header>
+
+  <main class="container">
+    <div id="setupDiv" class="card border border-gray-700 bg-gray-900/50 p-8 rounded-xl shadow-2xl">
+      <h2 class="text-xl mb-4 text-gray-300">&gt; Paste your German text</h2>
+      <p class="text-sm text-gray-500 mb-4">
+        // The Hungarian and English meaning appears under each typed word, and the full sentence translation appears at the end of each line.
+      </p>
       <textarea id="customTextInput">Zum Beispiel:
 Dort stehen: der Schreibtisch, das Telefon, der Computer, der Drucker, die Schreibtischlampe, der Stuhl und hier ist das Regal. Fehlt etwas?</textarea>
-      <button id="startBtn">Process text and start</button>
+      <button id="startBtn">&gt; Process text and start</button>
       <div id="loadingMsg" class="hidden">Translating, please wait...</div>
     </div>
 
@@ -23,13 +36,17 @@ Dort stehen: der Schreibtisch, das Telefon, der Computer, der Drucker, die Schre
 
     <div id="statsDisplay" class="hidden">
       <div class="stat-box">
-        <h3 style="color:#d1d0c5; margin-top:0;">Statistics for the entire text</h3>
+        <h3>Statistics for the entire text</h3>
         <p>Speed: <strong id="wpmResult">0</strong> WPM</p>
         <p>Accuracy: <strong id="accResult">0</strong>%</p>
       </div>
-      <button id="resetBtn">Enter new text</button>
+      <button id="resetBtn">&gt; Enter new text</button>
     </div>
-  </div>
+  </main>
+
+  <footer class="mt-16 text-gray-600 text-sm">
+    <p>© 2026 Tibor | Sr Java Dev</p>
+  </footer>
 
   <script src="german.js?v=3" defer></script>
 </body>
