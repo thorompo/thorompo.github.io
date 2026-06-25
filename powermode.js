@@ -9,6 +9,7 @@
 
   const CORRECT_COLORS = ['#38bdf8', '#7dd3fc', '#5eead4', '#fbbf24', '#c9d1d9'];
   const WRONG_COLORS = ['#f87171', '#fca5a5', '#ef4444'];
+  const STORAGE_KEY = 'powerMode.enabled';
 
   let canvas, ctx;
   let particles = [];
@@ -17,6 +18,21 @@
   let shakeIntensity = 0;
   let comboBadge;
   let shakeTarget = null;
+  let toggleBtn;
+  let enabled = loadEnabled();
+
+  function loadEnabled() {
+    try {
+      const v = localStorage.getItem(STORAGE_KEY);
+      return v === null ? true : v === 'true';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function saveEnabled(v) {
+    try { localStorage.setItem(STORAGE_KEY, String(v)); } catch (_) {}
+  }
 
   function injectStyles() {
     const style = document.createElement('style');
@@ -44,8 +60,30 @@
         font-size: 0.28em; color: #6b7280; letter-spacing: 0.25em;
         margin-top: 0.4em;
       }
+      #powerModeToggle {
+        position: absolute; top: 1rem; right: 1rem;
+        width: 38px; height: 38px;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.1rem; line-height: 1;
+        padding: 0;
+        border-radius: 8px;
+        border: 1px solid #374151;
+        background: rgba(13, 17, 23, 0.85);
+        color: #6b7280;
+        cursor: pointer;
+        user-select: none;
+        transition: color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.1s;
+      }
+      #powerModeToggle:hover { transform: translateY(-1px); }
+      #powerModeToggle.on {
+        color: #38bdf8;
+        border-color: #38bdf8;
+        box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+      }
       @media (max-width: 640px) {
         #powerModeCombo { right: 0.75rem; }
+        #powerModeToggle { width: 32px; height: 32px; font-size: 0.95rem; }
       }
     `;
     document.head.appendChild(style);
@@ -63,11 +101,44 @@
     comboBadge.id = 'powerModeCombo';
     document.body.appendChild(comboBadge);
 
+    toggleBtn = document.createElement('button');
+    toggleBtn.id = 'powerModeToggle';
+    toggleBtn.type = 'button';
+    // Prevent the button from stealing focus from the typing input.
+    toggleBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    toggleBtn.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    toggleBtn.addEventListener('click', () => setEnabled(!enabled));
+    document.body.appendChild(toggleBtn);
+    renderToggle();
+
     shakeTarget = document.getElementById('typingArea') || document.body;
 
     resize();
     window.addEventListener('resize', resize);
     requestAnimationFrame(loop);
+  }
+
+  function renderToggle() {
+    if (!toggleBtn) return;
+    toggleBtn.textContent = '⚡';
+    toggleBtn.title = enabled ? 'Power Mode: ON (click to disable)' : 'Power Mode: OFF (click to enable)';
+    toggleBtn.classList.toggle('on', enabled);
+    toggleBtn.setAttribute('aria-pressed', String(enabled));
+    toggleBtn.setAttribute('aria-label', 'Toggle Power Mode');
+  }
+
+  function setEnabled(v) {
+    enabled = !!v;
+    saveEnabled(enabled);
+    renderToggle();
+    if (!enabled) {
+      particles.length = 0;
+      combo = 0;
+      shakeIntensity = 0;
+      if (shakeTarget) shakeTarget.style.transform = '';
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      updateBadge();
+    }
   }
 
   function resize() {
@@ -148,7 +219,7 @@
   }
 
   function trigger(element, correct) {
-    if (!element || !canvas) return;
+    if (!enabled || !element || !canvas) return;
     const rect = element.getBoundingClientRect();
     spawnAt(rect, correct);
     if (correct) {
@@ -161,7 +232,11 @@
     updateBadge();
   }
 
-  window.PowerMode = { trigger };
+  window.PowerMode = {
+    trigger,
+    setEnabled,
+    isEnabled: () => enabled,
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
