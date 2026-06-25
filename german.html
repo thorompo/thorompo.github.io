@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="hu">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interaktív Nyelvtanulós Gépelés</title>
+  <title>Interactive Language Learning Typing</title>
   <style>
     body { 
       font-family: 'Courier New', Courier, monospace; 
@@ -38,7 +38,7 @@
     }
     .line-group.active-group { border-left-color: #e2b714; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
 
-    /* Megnöveltük a sorközt, hogy elférjen a szó alatti index */
+    /* Increased line height so the subscript under each word fits */
     .typing-line { font-size: 1.5rem; line-height: 2.5; }
     
     .trans-container {
@@ -54,7 +54,7 @@
     .trans-hu { font-size: 1rem; color: #79a6a6; margin-bottom: 0.3rem; font-family: Arial, sans-serif; }
     .trans-en { font-size: 1rem; color: #a68a79; font-family: Arial, sans-serif; }
 
-    /* Sor szintű statisztika a fordítás alatt */
+    /* Per-line statistics under the translation */
     .line-stats {
       display: none;
       margin-top: 0.6rem;
@@ -65,25 +65,25 @@
     .trans-container.revealed .line-stats { display: block; }
     .line-stats .stat-label { color: #646669; }
 
-    /* Szó és Alsó index stílusok */
+    /* Word and subscript styles */
     .word { position: relative; display: inline-block; }
     
     .word-subscript {
       display: none;
       position: absolute;
       left: 0;
-      bottom: -1.2rem; /* A karakterek alá pozicionálva */
+      bottom: -1.2rem; /* Positioned under the characters */
       font-size: 0.7rem;
       font-family: Arial, sans-serif;
       white-space: nowrap;
       pointer-events: none;
     }
 
-    /* Külön szín a magyar és angol indexnek */
+    /* Separate colors for the Hungarian and English subscript */
     .word-subscript .sub-hu { color: #79a6a6; }
     .word-subscript .sub-en { color: #a68a79; }
 
-    /* Amikor a szó kész, mutassuk az indexet */
+    /* When the word is complete, show the subscript */
     .word.completed .word-subscript { display: block; animation: fadeIn 0.3s ease; }
 
     .char { position: relative; }
@@ -104,22 +104,22 @@
 
   <div class="container">
     <div id="setupDiv">
-      <h2>Interaktív Nyelvtanulás (Alsó indexekkel)</h2>
-      <p style="color:#d1d0c5;">Illeszd be a német szöveget! A begépelt szavak alatt azonnal megjelenik a magyar és angol jelentésük, a sor végén pedig a teljes mondat fordítása.</p>
-      <textarea id="customTextInput">Deutscher Lehrplan</textarea>
-      <button id="startBtn">Szöveg feldolgozása és Start</button>
-      <div id="loadingMsg" class="hidden">Fordítás folyamatban, kérlek várj...</div>
+      <h2>Interactive Language Learning (with subscripts)</h2>
+      <p style="color:#d1d0c5;">Paste your German text! The Hungarian and English meaning appears under each typed word, and the full sentence translation appears at the end of each line.</p>
+      <textarea id="customTextInput"></textarea>
+      <button id="startBtn">Process text and start</button>
+      <div id="loadingMsg" class="hidden">Translating, please wait...</div>
     </div>
 
     <div id="typingArea" class="hidden" tabindex="0"></div>
 
     <div id="statsDisplay" class="hidden">
       <div class="stat-box">
-        <h3 style="color:#d1d0c5; margin-top:0;">Teljes szövegre vonatkozó statisztika</h3>
-        <p>Sebesség: <strong id="wpmResult">0</strong> WPM</p>
-        <p>Pontosság: <strong id="accResult">0</strong>%</p>
+        <h3 style="color:#d1d0c5; margin-top:0;">Statistics for the entire text</h3>
+        <p>Speed: <strong id="wpmResult">0</strong> WPM</p>
+        <p>Accuracy: <strong id="accResult">0</strong>%</p>
       </div>
-      <button id="resetBtn">Új szöveg megadása</button>
+      <button id="resetBtn">Enter new text</button>
     </div>
   </div>
 
@@ -137,11 +137,11 @@
     let groups = [];
     let currentIndex = 0;
     let totalMistakes = 0;
-    let startTime = null;     // teljes teszt kezdete (első leütés)
-    let lastKeyTime = null;   // utolsó leütés ideje
+    let startTime = null;     // start of the whole test (first keystroke)
+    let lastKeyTime = null;   // time of the last keystroke
     let isTestActive = false;
 
-    // API Hívás
+    // API call
     async function translateText(text, targetLang) {
       if (!text) return "";
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
@@ -150,8 +150,8 @@
         const data = await response.json();
         return data[0].map(item => item[0]).join('');
       } catch (error) {
-        console.error("Fordítási hiba:", error);
-        return "Hiba";
+        console.error("Translation error:", error);
+        return "Error";
       }
     }
 
@@ -165,11 +165,11 @@
       const originalLines = rawText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       const cleanText = originalLines.join('\n');
 
-      // Kinyerjük az összes egyedi szót
+      // Extract all unique words
       const allWordsMatch = cleanText.match(/[\p{L}]+/gu) || [];
       const uniqueWords = [...new Set(allWordsMatch.map(w => w.toLowerCase()))];
 
-      // Négy fordítást indítunk egyszerre: teljes HU/EN, és szavak HU/EN
+      // Run four translations at once: full HU/EN, and per-word HU/EN
       const [huTranslation, enTranslation, wordsHu, wordsEn] = await Promise.all([
         translateText(cleanText, 'hu'),
         translateText(cleanText, 'en'),
@@ -182,7 +182,7 @@
       const translatedWordsHuArr = wordsHu.split('\n');
       const translatedWordsEnArr = wordsEn.split('\n');
 
-      // Kettős szótár felépítése
+      // Build the dual dictionary
       const wordDict = {};
       uniqueWords.forEach((w, i) => {
         wordDict[w] = {
@@ -221,11 +221,11 @@
           if (!token) return;
           
           if (/\p{L}/u.test(token)) {
-            // Szó konténer
+            // Word container
             const wordSpan = document.createElement('span');
             wordSpan.classList.add('word');
             
-            // Alsó index (subscript) hozzáadása
+            // Add the subscript
             const subscript = document.createElement('span');
             subscript.classList.add('word-subscript');
             
@@ -244,7 +244,7 @@
             });
             typingDiv.appendChild(wordSpan);
           } else {
-            // Nem szó (írásjel, szóköz)
+            // Non-word (punctuation, space)
             token.split('').forEach(char => {
               const charSpan = document.createElement('span');
               charSpan.innerText = char;
@@ -258,13 +258,13 @@
 
         groupDiv.appendChild(typingDiv);
 
-        // Teljes sor fordítása
+        // Full line translation
         const transContainer = document.createElement('div');
         transContainer.classList.add('trans-container');
 
         const huDiv = document.createElement('div');
         huDiv.classList.add('trans-hu');
-        huDiv.innerText = (huLines[index] || "Fordítás nem elérhető").trim();
+        huDiv.innerText = (huLines[index] || "Translation not available").trim();
         transContainer.appendChild(huDiv);
 
         const enDiv = document.createElement('div');
@@ -272,7 +272,7 @@
         enDiv.innerText = (enLines[index] || "Translation not available").trim();
         transContainer.appendChild(enDiv);
 
-        // Sor szintű statisztika eleme
+        // Per-line statistics element
         const lineStatsDiv = document.createElement('div');
         lineStatsDiv.classList.add('line-stats');
         transContainer.appendChild(lineStatsDiv);
@@ -327,7 +327,7 @@
       if (!wordSpan) return;
       
       const chars = Array.from(wordSpan.querySelectorAll('.char'));
-      // A szó kész, ha minden karakterét megpróbálták begépelni (helyesen vagy hibásan)
+      // The word is done once every character has been attempted (correctly or incorrectly)
       const isDone = chars.every(c => c.classList.contains('correct') || c.classList.contains('incorrect'));
       wordSpan.classList.toggle('completed', isDone);
     }
@@ -350,7 +350,7 @@
       const wpm = Math.max(Math.round((correct / 5) / minutes), 0);
       const acc = ls.charCount > 0 ? Math.max(Math.round((correct / ls.charCount) * 100), 0) : 0;
 
-      ls.statsEl.innerHTML = `<span class="stat-label">Sor statisztika:</span> ${wpm} WPM · ${acc}% pontosság`;
+      ls.statsEl.innerHTML = `<span class="stat-label">Line stats:</span> ${wpm} WPM · ${acc}% accuracy`;
       ls.transContainer.classList.add('revealed');
     }
 
@@ -402,7 +402,7 @@
       currentIndex++;
 
       if (currentIndex === characters.length) {
-        // Az utolsó sor lezárása, majd összesített statisztika
+        // Finalize the last line, then show the overall statistics
         finalizeLine(lineOf(characters.length - 1));
         endTest();
         return;
@@ -410,7 +410,7 @@
 
       const nextLi = lineOf(currentIndex);
       if (nextLi !== li) {
-        // Sorhatárt léptünk át -> az előző sor lezárása és fordítás megjelenítése
+        // Crossed a line boundary -> finalize the previous line and reveal its translation
         finalizeLine(li);
         highlightActiveGroup();
       }
@@ -430,7 +430,7 @@
       document.getElementById('wpmResult').innerText = wpm;
       document.getElementById('accResult').innerText = accuracy;
 
-      // A begépelt szöveg NEM törlődik, csak megjelenik alatta az összesített statisztika
+      // The typed text is NOT cleared; the overall statistics just appear below it
       typingArea.style.paddingBottom = '2rem';
       statsDisplay.classList.remove('hidden');
       statsDisplay.scrollIntoView({ behavior: 'smooth', block: 'center' });
