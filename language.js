@@ -1,16 +1,16 @@
 // ---------- Constants ----------
 const TRANSLATE_API = 'https://translate.googleapis.com/translate_a/single';
-const SOURCE_LANG = 'de';
+const SOURCE_LANG = 'auto';
 const WORD_REGEX = /[\p{L}]+/gu;
 const WORD_TEST_REGEX = /\p{L}/u;
 const WORD_SPLIT_REGEX = /([\p{L}]+)/gu;
 const MIN_MINUTES = 0.0001;
 const CHARS_PER_WORD = 5;
 
-// Whitelist: latin letters (DE/EN/HU diacritics), digits, whitespace,
-// common punctuation and basic math symbols. Everything else is stripped
-// from pasted input (emoji, non-latin scripts, exotic symbols, etc.).
-const SANITIZE_REGEX = /[^\p{Script=Latin}\p{N}\s.,;:!?'"„“”‚‘’()\[\]\-–—…+*/=%<>^]/gu;
+// Whitelist: any letter (any script), any number, combining marks,
+// whitespace, common punctuation and basic math symbols.
+// Everything else (emoji, control chars, exotic symbols) is stripped.
+const SANITIZE_REGEX = /[^\p{L}\p{N}\p{M}\s.,;:!?'"„“”‚‘’()\[\]\-–—…+*\/=%<>^]/gu;
 
 function sanitizeInput(text) {
   return text.replace(SANITIZE_REGEX, '');

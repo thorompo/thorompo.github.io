@@ -3,25 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>German Language Trainer</title>
+  <title>Language Trainer</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="german.css?v=3">
+  <link rel="stylesheet" href="language.css?v=3">
 </head>
 <body class="flex flex-col items-center min-h-screen p-6">
 
   <header class="text-center mb-10">
-    <h1 class="text-5xl font-bold mb-4 text-sky-400 glow">German Language Trainer</h1>
-    <p class="text-gray-400">Interactive typing with Hungarian &amp; English subscripts</p>
+    <h1 class="text-5xl font-bold mb-4 text-sky-400 glow">Language Trainer</h1>
+    <p class="text-gray-400">Interactive typing with Hungarian &amp; English subscripts &middot; auto language detection</p>
   </header>
 
   <main class="container">
     <div id="setupDiv" class="card border border-gray-700 bg-gray-900/50 p-8 rounded-xl shadow-2xl">
-      <h2 class="text-xl mb-4 text-gray-300">&gt; Paste your German text</h2>
+      <h2 class="text-xl mb-4 text-gray-300">&gt; Paste your text in any language</h2>
       <p class="text-sm text-gray-500 mb-4">
         // The Hungarian and English meaning appears under each typed word, and the full sentence translation appears at the end of each line.
       </p>
@@ -50,6 +50,6 @@ Dort stehen: der Schreibtisch, das Telefon, der Computer, der Drucker, die Schre
   </footer>
 
   <script src="powermode.js?v=6" defer></script>
-  <script src="german.js?v=7" defer></script>
+  <script src="language.js?v=8" defer></script>
 </body>
 </html>
