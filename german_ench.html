@@ -38,11 +38,11 @@
     }
     .line-group.active-group { border-left-color: #e2b714; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
 
-    .typing-line { font-size: 1.5rem; line-height: 1.5; }
+    /* Megnöveltük a sorközt, hogy elférjen a szó alatti index */
+    .typing-line { font-size: 1.5rem; line-height: 2.5; }
     
-    /* Rejtett fordítások stílusai */
     .trans-container {
-      display: none; /* Alapból rejtve */
+      display: none;
       margin-top: 15px;
       padding-top: 10px;
       border-top: 1px dashed #646669;
@@ -54,43 +54,26 @@
     .trans-hu { font-size: 1rem; color: #79a6a6; margin-bottom: 0.3rem; font-family: Arial, sans-serif; }
     .trans-en { font-size: 1rem; color: #a68a79; font-family: Arial, sans-serif; }
     
-    /* Szó és Buborék stílusok */
+    /* Szó és Alsó index stílusok */
     .word { position: relative; display: inline-block; }
     
-    .tooltip {
-      visibility: hidden;
-      opacity: 0;
+    .word-subscript {
+      display: none;
       position: absolute;
-      bottom: 100%;
-      left: 50%;
-      transform: translateX(-50%);
-      background-color: #e2b714;
-      color: #323437;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 0.85rem;
+      right: 0;
+      bottom: -1.2rem; /* A karakterek alá pozicionálva */
+      font-size: 0.7rem;
       font-family: Arial, sans-serif;
-      font-weight: bold;
       white-space: nowrap;
-      transition: opacity 0.2s, bottom 0.2s;
       pointer-events: none;
-      margin-bottom: 2px;
-      z-index: 10;
-    }
-    
-    /* Buborék kis nyila */
-    .tooltip::after {
-      content: "";
-      position: absolute;
-      top: 100%; left: 50%;
-      margin-left: -5px;
-      border-width: 5px;
-      border-style: solid;
-      border-color: #e2b714 transparent transparent transparent;
     }
 
-    /* Amikor a szó kész, mutassuk a buborékot */
-    .word.completed .tooltip { visibility: visible; opacity: 1; bottom: calc(100% + 5px); }
+    /* Külön szín a magyar és angol indexnek */
+    .word-subscript .sub-hu { color: #79a6a6; }
+    .word-subscript .sub-en { color: #a68a79; }
+
+    /* Amikor a szó kész, mutassuk az indexet */
+    .word.completed .word-subscript { display: block; animation: fadeIn 0.3s ease; }
 
     .char { position: relative; }
     .char.correct { color: #d1d0c5; }
@@ -110,8 +93,8 @@
 
   <div class="container">
     <div id="setupDiv">
-      <h2>Interaktív Nyelvtanulás (Buborékokkal)</h2>
-      <p style="color:#d1d0c5;">Illeszd be a német szöveget! Gépelés közben a szavak felett megjelenik a jelentésük, a sor végén pedig a teljes mondat fordítása.</p>
+      <h2>Interaktív Nyelvtanulás (Alsó indexekkel)</h2>
+      <p style="color:#d1d0c5;">Illeszd be a német szöveget! A begépelt szavak alatt azonnal megjelenik a magyar és angol jelentésük, a sor végén pedig a teljes mondat fordítása.</p>
       <textarea id="customTextInput">Frau Herzberg: Guten Tag. Suchen Sie etwas?
 Herr Heinemann: Ja, mein Büro. Ich bin neu hier.
 Frau Herzberg: Sind Sie Herr Heinemann?
@@ -157,7 +140,7 @@ Frau Herzberg: Herzlich willkommen!</textarea>
         return data[0].map(item => item[0]).join('');
       } catch (error) {
         console.error("Fordítási hiba:", error);
-        return "Hiba a fordítás során.";
+        return "Hiba";
       }
     }
 
@@ -171,25 +154,30 @@ Frau Herzberg: Herzlich willkommen!</textarea>
       const originalLines = rawText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       const cleanText = originalLines.join('\n');
 
-      // Kinyerjük az összes egyedi szót (betűket tartalmazó stringeket) a szótárhoz
+      // Kinyerjük az összes egyedi szót
       const allWordsMatch = cleanText.match(/[\p{L}]+/gu) || [];
       const uniqueWords = [...new Set(allWordsMatch.map(w => w.toLowerCase()))];
 
-      // Három fordítást indítunk egyszerre: teljes HU, teljes EN, és a szavak HU
-      const [huTranslation, enTranslation, wordsTranslation] = await Promise.all([
+      // Négy fordítást indítunk egyszerre: teljes HU/EN, és szavak HU/EN
+      const [huTranslation, enTranslation, wordsHu, wordsEn] = await Promise.all([
         translateText(cleanText, 'hu'),
         translateText(cleanText, 'en'),
-        translateText(uniqueWords.join('\n'), 'hu')
+        translateText(uniqueWords.join('\n'), 'hu'),
+        translateText(uniqueWords.join('\n'), 'en')
       ]);
 
       const huLines = huTranslation.split('\n');
       const enLines = enTranslation.split('\n');
-      const translatedWordsArr = wordsTranslation.split('\n');
+      const translatedWordsHuArr = wordsHu.split('\n');
+      const translatedWordsEnArr = wordsEn.split('\n');
 
-      // Szótár felépítése
+      // Kettős szótár felépítése
       const wordDict = {};
       uniqueWords.forEach((w, i) => {
-        wordDict[w] = translatedWordsArr[i] || w;
+        wordDict[w] = {
+          hu: translatedWordsHuArr[i] || w,
+          en: translatedWordsEnArr[i] || w
+        };
       });
 
       setupDiv.classList.add('hidden');
@@ -210,22 +198,24 @@ Frau Herzberg: Herzlich willkommen!</textarea>
         let textToType = targetText;
         if (index < originalLines.length - 1) textToType += ' ';
 
-        // Szétvágjuk a sort szavakra és nem-szavakra (pl. szóköz, pont, vessző)
         const tokens = textToType.split(/([\p{L}]+)/gu);
 
         tokens.forEach(token => {
           if (!token) return;
           
           if (/[\p{L}]+/.test(token)) {
-            // Ez egy szó, becsomagoljuk
+            // Szó konténer
             const wordSpan = document.createElement('span');
             wordSpan.classList.add('word');
             
-            // Buborék hozzáadása
-            const tooltip = document.createElement('div');
-            tooltip.classList.add('tooltip');
-            tooltip.innerText = wordDict[token.toLowerCase()] || token;
-            wordSpan.appendChild(tooltip);
+            // Alsó index (subscript) hozzáadása
+            const subscript = document.createElement('span');
+            subscript.classList.add('word-subscript');
+            
+            const transObj = wordDict[token.toLowerCase()] || { hu: token, en: token };
+            subscript.innerHTML = `<span class="sub-hu">${transObj.hu}</span> / <span class="sub-en">${transObj.en}</span>`;
+            
+            wordSpan.appendChild(subscript);
 
             token.split('').forEach(char => {
               const charSpan = document.createElement('span');
@@ -236,7 +226,7 @@ Frau Herzberg: Herzlich willkommen!</textarea>
             });
             typingDiv.appendChild(wordSpan);
           } else {
-            // Nem szó (írásjel, szóköz), sima karakterként adjuk hozzá
+            // Nem szó (írásjel, szóköz)
             token.split('').forEach(char => {
               const charSpan = document.createElement('span');
               charSpan.innerText = char;
@@ -249,7 +239,7 @@ Frau Herzberg: Herzlich willkommen!</textarea>
 
         groupDiv.appendChild(typingDiv);
 
-        // Rejtett fordítás konténer
+        // Teljes sor fordítása
         const transContainer = document.createElement('div');
         transContainer.classList.add('trans-container');
 
@@ -292,7 +282,6 @@ Frau Herzberg: Herzlich willkommen!</textarea>
       }
     }
 
-    // Ellenőrzi egy szó állapotát, és aktiválja a buborékot, ha hibátlan
     function updateWordStatus(charElement) {
       if (!charElement) return;
       const wordSpan = charElement.closest('.word');
@@ -308,10 +297,8 @@ Frau Herzberg: Herzlich willkommen!</textarea>
       }
     }
 
-    // Felfedi a fordítást, ha átlépünk egy új sorra
     function checkLineReveal() {
       if (currentIndex === 0 || currentIndex === characters.length) return;
-      
       const prevGroup = characters[currentIndex - 1].closest('.line-group');
       const currentGroup = characters[currentIndex].closest('.line-group');
       
@@ -357,13 +344,10 @@ Frau Herzberg: Herzlich willkommen!</textarea>
         mistakes++;
       }
 
-      // Frissítjük a buborékot az épp gépelt szón
       updateWordStatus(currentCharElement);
-
       currentIndex++;
 
       if (currentIndex === characters.length) {
-        // Utolsó sor felfedése
         const lastGroup = characters[currentIndex - 1].closest('.line-group');
         if (lastGroup) {
           const transContainer = lastGroup.querySelector('.trans-container');
@@ -395,7 +379,7 @@ Frau Herzberg: Herzlich willkommen!</textarea>
       setTimeout(() => {
         typingArea.classList.add('hidden');
         statsDisplay.classList.remove('hidden');
-      }, 2000); // Kicsit várunk a teszt végén, hogy el lehessen olvasni az utolsó sort
+      }, 2000);
     }
 
     resetBtn.addEventListener('click', () => {
