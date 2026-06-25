@@ -377,13 +377,16 @@ function recordKeystroke(typedChar, now) {
   const expected = currentCharEl.innerText;
 
   currentCharEl.classList.remove('active');
-  if (typedChar === expected) {
+  const isCorrect = typedChar === expected;
+  if (isCorrect) {
     currentCharEl.classList.add('correct');
   } else {
     currentCharEl.classList.add('incorrect');
     state.totalMistakes++;
     if (ls) ls.mistakes++;
   }
+
+  if (window.PowerMode) window.PowerMode.trigger(currentCharEl, isCorrect);
 
   updateWordStatus(currentCharEl);
   if (ls) ls.endTime = now;
