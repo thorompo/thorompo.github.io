@@ -1,1 +1,448 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interaktív Nyelvtanulós Gépelés</title>
+  <style>
+    body { 
+      font-family: 'Courier New', Courier, monospace; 
+      background: #323437; 
+      color: #646669; 
+      padding: 0; margin: 0; display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+    }
+    
+    .container { width: 100%; max-width: 900px; padding: 2rem; box-sizing: border-box; }
+    .hidden { display: none !important; }
 
+    #setupDiv h2 { color: #d1d0c5; }
+    textarea { 
+      width: 100%; height: 250px; margin-bottom: 15px; padding: 15px;
+      background: #2c2e31; color: #d1d0c5; border: 1px solid #646669;
+      border-radius: 8px; font-family: inherit; resize: vertical; line-height: 1.4;
+    }
+
+    button { 
+      padding: 12px 24px; cursor: pointer; background: #e2b714; color: #323437;
+      border: none; border-radius: 5px; font-weight: bold; font-size: 1.1rem;
+      transition: opacity 0.2s; width: 100%;
+    }
+    button:hover { opacity: 0.8; }
+    button:disabled { background: #646669; cursor: not-allowed; }
+
+    #typingArea { outline: none; user-select: none; padding-bottom: 50vh; }
+    
+    .line-group {
+      background: #2c2e31; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;
+      border-left: 4px solid #646669; transition: border-color 0.3s;
+    }
+    .line-group.active-group { border-left-color: #e2b714; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+
+    /* Megnöveltük a sorközt, hogy elférjen a szó alatti index */
+    .typing-line { font-size: 1.5rem; line-height: 2.5; }
+    
+    .trans-container {
+      display: none;
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 1px dashed #646669;
+    }
+    .trans-container.revealed { display: block; animation: fadeIn 0.5s ease; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+    .trans-hu { font-size: 1rem; color: #79a6a6; margin-bottom: 0.3rem; font-family: Arial, sans-serif; }
+    .trans-en { font-size: 1rem; color: #a68a79; font-family: Arial, sans-serif; }
+
+    /* Sor szintű statisztika a fordítás alatt */
+    .line-stats {
+      display: none;
+      margin-top: 0.6rem;
+      font-size: 0.95rem;
+      color: #e2b714;
+      font-family: 'Courier New', Courier, monospace;
+    }
+    .trans-container.revealed .line-stats { display: block; }
+    .line-stats .stat-label { color: #646669; }
+
+    /* Szó és Alsó index stílusok */
+    .word { position: relative; display: inline-block; }
+    
+    .word-subscript {
+      display: none;
+      position: absolute;
+      left: 0;
+      bottom: -1.2rem; /* A karakterek alá pozicionálva */
+      font-size: 0.7rem;
+      font-family: Arial, sans-serif;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    /* Külön szín a magyar és angol indexnek */
+    .word-subscript .sub-hu { color: #79a6a6; }
+    .word-subscript .sub-en { color: #a68a79; }
+
+    /* Amikor a szó kész, mutassuk az indexet */
+    .word.completed .word-subscript { display: block; animation: fadeIn 0.3s ease; }
+
+    .char { position: relative; }
+    .char.correct { color: #d1d0c5; }
+    .char.incorrect { color: #ca4754; text-decoration: underline; background: rgba(202, 71, 84, 0.2); }
+    .char.active::before { 
+      content: ''; position: absolute; left: 0; bottom: 0; width: 2px; height: 100%;
+      background-color: #e2b714; animation: blink 1s infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    #statsDisplay { color: #e2b714; font-size: 1.5rem; margin-top: 20px; text-align: center; }
+    .stat-box { background: #2c2e31; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+    #loadingMsg { color: #e2b714; text-align: center; font-size: 1.2rem; margin-top: 10px; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div id="setupDiv">
+      <h2>Interaktív Nyelvtanulás (Alsó indexekkel)</h2>
+      <p style="color:#d1d0c5;">Illeszd be a német szöveget! A begépelt szavak alatt azonnal megjelenik a magyar és angol jelentésük, a sor végén pedig a teljes mondat fordítása.</p>
+      <textarea id="customTextInput">Deutscher Lehrplan</textarea>
+      <button id="startBtn">Szöveg feldolgozása és Start</button>
+      <div id="loadingMsg" class="hidden">Fordítás folyamatban, kérlek várj...</div>
+    </div>
+
+    <div id="typingArea" class="hidden" tabindex="0"></div>
+
+    <div id="statsDisplay" class="hidden">
+      <div class="stat-box">
+        <h3 style="color:#d1d0c5; margin-top:0;">Teljes szövegre vonatkozó statisztika</h3>
+        <p>Sebesség: <strong id="wpmResult">0</strong> WPM</p>
+        <p>Pontosság: <strong id="accResult">0</strong>%</p>
+      </div>
+      <button id="resetBtn">Új szöveg megadása</button>
+    </div>
+  </div>
+
+  <script>
+    const setupDiv = document.getElementById('setupDiv');
+    const typingArea = document.getElementById('typingArea');
+    const statsDisplay = document.getElementById('statsDisplay');
+    const customTextInput = document.getElementById('customTextInput');
+    const startBtn = document.getElementById('startBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const loadingMsg = document.getElementById('loadingMsg');
+
+    let characters = [];
+    let lineStats = [];
+    let groups = [];
+    let currentIndex = 0;
+    let totalMistakes = 0;
+    let startTime = null;     // teljes teszt kezdete (első leütés)
+    let lastKeyTime = null;   // utolsó leütés ideje
+    let isTestActive = false;
+
+    // API Hívás
+    async function translateText(text, targetLang) {
+      if (!text) return "";
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        return data[0].map(item => item[0]).join('');
+      } catch (error) {
+        console.error("Fordítási hiba:", error);
+        return "Hiba";
+      }
+    }
+
+    startBtn.addEventListener('click', async () => {
+      let rawText = customTextInput.value.trim();
+      if (!rawText) return;
+
+      startBtn.disabled = true;
+      loadingMsg.classList.remove('hidden');
+
+      const originalLines = rawText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      const cleanText = originalLines.join('\n');
+
+      // Kinyerjük az összes egyedi szót
+      const allWordsMatch = cleanText.match(/[\p{L}]+/gu) || [];
+      const uniqueWords = [...new Set(allWordsMatch.map(w => w.toLowerCase()))];
+
+      // Négy fordítást indítunk egyszerre: teljes HU/EN, és szavak HU/EN
+      const [huTranslation, enTranslation, wordsHu, wordsEn] = await Promise.all([
+        translateText(cleanText, 'hu'),
+        translateText(cleanText, 'en'),
+        translateText(uniqueWords.join('\n'), 'hu'),
+        translateText(uniqueWords.join('\n'), 'en')
+      ]);
+
+      const huLines = huTranslation.split('\n');
+      const enLines = enTranslation.split('\n');
+      const translatedWordsHuArr = wordsHu.split('\n');
+      const translatedWordsEnArr = wordsEn.split('\n');
+
+      // Kettős szótár felépítése
+      const wordDict = {};
+      uniqueWords.forEach((w, i) => {
+        wordDict[w] = {
+          hu: (translatedWordsHuArr[i] || w).trim(),
+          en: (translatedWordsEnArr[i] || w).trim()
+        };
+      });
+
+      setupDiv.classList.add('hidden');
+      loadingMsg.classList.add('hidden');
+      startBtn.disabled = false;
+      statsDisplay.classList.add('hidden');
+
+      typingArea.classList.remove('hidden');
+      typingArea.innerHTML = '';
+      typingArea.style.paddingBottom = '50vh';
+      characters = [];
+      lineStats = [];
+      groups = [];
+
+      originalLines.forEach((targetText, index) => {
+        const startIndex = characters.length;
+
+        const groupDiv = document.createElement('div');
+        groupDiv.classList.add('line-group');
+
+        const typingDiv = document.createElement('div');
+        typingDiv.classList.add('typing-line');
+
+        let textToType = targetText;
+        if (index < originalLines.length - 1) textToType += ' ';
+
+        const tokens = textToType.split(/([\p{L}]+)/gu);
+
+        tokens.forEach(token => {
+          if (!token) return;
+          
+          if (/\p{L}/u.test(token)) {
+            // Szó konténer
+            const wordSpan = document.createElement('span');
+            wordSpan.classList.add('word');
+            
+            // Alsó index (subscript) hozzáadása
+            const subscript = document.createElement('span');
+            subscript.classList.add('word-subscript');
+            
+            const transObj = wordDict[token.toLowerCase()] || { hu: token, en: token };
+            subscript.innerHTML = `(<span class="sub-hu">${transObj.hu}</span>, <span class="sub-en">${transObj.en}</span>)`;
+            
+            wordSpan.appendChild(subscript);
+
+            token.split('').forEach(char => {
+              const charSpan = document.createElement('span');
+              charSpan.innerText = char;
+              charSpan.classList.add('char');
+              charSpan.dataset.line = index;
+              wordSpan.appendChild(charSpan);
+              characters.push(charSpan);
+            });
+            typingDiv.appendChild(wordSpan);
+          } else {
+            // Nem szó (írásjel, szóköz)
+            token.split('').forEach(char => {
+              const charSpan = document.createElement('span');
+              charSpan.innerText = char;
+              charSpan.classList.add('char');
+              charSpan.dataset.line = index;
+              typingDiv.appendChild(charSpan);
+              characters.push(charSpan);
+            });
+          }
+        });
+
+        groupDiv.appendChild(typingDiv);
+
+        // Teljes sor fordítása
+        const transContainer = document.createElement('div');
+        transContainer.classList.add('trans-container');
+
+        const huDiv = document.createElement('div');
+        huDiv.classList.add('trans-hu');
+        huDiv.innerText = (huLines[index] || "Fordítás nem elérhető").trim();
+        transContainer.appendChild(huDiv);
+
+        const enDiv = document.createElement('div');
+        enDiv.classList.add('trans-en');
+        enDiv.innerText = (enLines[index] || "Translation not available").trim();
+        transContainer.appendChild(enDiv);
+
+        // Sor szintű statisztika eleme
+        const lineStatsDiv = document.createElement('div');
+        lineStatsDiv.classList.add('line-stats');
+        transContainer.appendChild(lineStatsDiv);
+
+        groupDiv.appendChild(transContainer);
+        typingArea.appendChild(groupDiv);
+
+        const endIndex = characters.length - 1;
+        lineStats.push({
+          startIndex,
+          endIndex,
+          charCount: endIndex - startIndex + 1,
+          startTime: null,
+          endTime: null,
+          mistakes: 0,
+          finalized: false,
+          statsEl: lineStatsDiv,
+          transContainer
+        });
+        groups.push(groupDiv);
+      });
+
+      currentIndex = 0;
+      totalMistakes = 0;
+      startTime = null;
+      lastKeyTime = null;
+      isTestActive = true;
+      
+      if (characters.length > 0) {
+        characters[0].classList.add('active');
+        highlightActiveGroup();
+      }
+
+      window.scrollTo(0, 0);
+      typingArea.focus();
+    });
+
+    function highlightActiveGroup() {
+      document.querySelectorAll('.line-group').forEach(group => group.classList.remove('active-group'));
+      if (characters[currentIndex]) {
+        const activeGroup = characters[currentIndex].closest('.line-group');
+        if (activeGroup) {
+          activeGroup.classList.add('active-group');
+          activeGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    function updateWordStatus(charElement) {
+      if (!charElement) return;
+      const wordSpan = charElement.closest('.word');
+      if (!wordSpan) return;
+      
+      const chars = Array.from(wordSpan.querySelectorAll('.char'));
+      // A szó kész, ha minden karakterét megpróbálták begépelni (helyesen vagy hibásan)
+      const isDone = chars.every(c => c.classList.contains('correct') || c.classList.contains('incorrect'));
+      wordSpan.classList.toggle('completed', isDone);
+    }
+
+    function lineOf(index) {
+      if (index < 0 || index >= characters.length) return -1;
+      return parseInt(characters[index].dataset.line, 10);
+    }
+
+    function finalizeLine(li) {
+      const ls = lineStats[li];
+      if (!ls || ls.finalized) return;
+      ls.finalized = true;
+
+      if (!ls.endTime) ls.endTime = lastKeyTime || new Date();
+      if (!ls.startTime) ls.startTime = ls.endTime;
+
+      const minutes = Math.max((ls.endTime - ls.startTime) / 60000, 0.0001);
+      const correct = Math.max(ls.charCount - ls.mistakes, 0);
+      const wpm = Math.max(Math.round((correct / 5) / minutes), 0);
+      const acc = ls.charCount > 0 ? Math.max(Math.round((correct / ls.charCount) * 100), 0) : 0;
+
+      ls.statsEl.innerHTML = `<span class="stat-label">Sor statisztika:</span> ${wpm} WPM · ${acc}% pontosság`;
+      ls.transContainer.classList.add('revealed');
+    }
+
+    typingArea.addEventListener('keydown', (e) => {
+      if (!isTestActive || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.length !== 1 && e.key !== 'Backspace') return;
+      
+      e.preventDefault();
+
+      const now = new Date();
+
+      if (e.key === 'Backspace') {
+        if (currentIndex > 0) {
+          characters[currentIndex].classList.remove('active');
+          currentIndex--;
+          characters[currentIndex].classList.remove('correct', 'incorrect');
+          characters[currentIndex].classList.add('active');
+          
+          updateWordStatus(characters[currentIndex]);
+          highlightActiveGroup();
+        }
+        return;
+      }
+
+      if (!startTime) startTime = now;
+      lastKeyTime = now;
+
+      const li = lineOf(currentIndex);
+      const ls = lineStats[li];
+      if (ls && !ls.startTime) ls.startTime = now;
+
+      const currentCharElement = characters[currentIndex];
+      const expectedChar = currentCharElement.innerText;
+      const typedChar = e.key;
+
+      currentCharElement.classList.remove('active');
+
+      if (typedChar === expectedChar) {
+        currentCharElement.classList.add('correct');
+      } else {
+        currentCharElement.classList.add('incorrect');
+        totalMistakes++;
+        if (ls) ls.mistakes++;
+      }
+
+      updateWordStatus(currentCharElement);
+      if (ls) ls.endTime = now;
+
+      currentIndex++;
+
+      if (currentIndex === characters.length) {
+        // Az utolsó sor lezárása, majd összesített statisztika
+        finalizeLine(lineOf(characters.length - 1));
+        endTest();
+        return;
+      }
+
+      const nextLi = lineOf(currentIndex);
+      if (nextLi !== li) {
+        // Sorhatárt léptünk át -> az előző sor lezárása és fordítás megjelenítése
+        finalizeLine(li);
+        highlightActiveGroup();
+      }
+      characters[currentIndex].classList.add('active');
+    });
+
+    function endTest() {
+      isTestActive = false;
+      const endTime = lastKeyTime || new Date();
+      const minutes = Math.max((endTime - startTime) / 60000, 0.0001);
+      const totalKeystrokes = characters.length;
+      const correctKeystrokes = Math.max(totalKeystrokes - totalMistakes, 0);
+      
+      const wpm = Math.max(Math.round((correctKeystrokes / 5) / minutes), 0);
+      const accuracy = totalKeystrokes > 0 ? Math.max(Math.round((correctKeystrokes / totalKeystrokes) * 100), 0) : 0;
+
+      document.getElementById('wpmResult').innerText = wpm;
+      document.getElementById('accResult').innerText = accuracy;
+
+      // A begépelt szöveg NEM törlődik, csak megjelenik alatta az összesített statisztika
+      typingArea.style.paddingBottom = '2rem';
+      statsDisplay.classList.remove('hidden');
+      statsDisplay.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    resetBtn.addEventListener('click', () => {
+      statsDisplay.classList.add('hidden');
+      typingArea.classList.add('hidden');
+      typingArea.innerHTML = '';
+      setupDiv.classList.remove('hidden');
+      window.scrollTo(0, 0);
+    });
+  </script>
+</body>
+</html>
