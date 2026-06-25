@@ -430,6 +430,7 @@ function handleReset() {
   typingArea.classList.add('hidden');
   typingArea.innerHTML = '';
   setupDiv.classList.remove('hidden');
+  if (window.PowerMode) window.PowerMode.resetStats();
   window.scrollTo(0, 0);
   hiddenInput.blur();
 }
