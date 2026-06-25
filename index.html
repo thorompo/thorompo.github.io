@@ -1,0 +1,29 @@
+<style>
+  body { font-family: monospace; background: #323437; color: #646669; padding: 2rem; }
+  .hidden { display: none !important; }
+  #typingArea { font-size: 1.5rem; max-width: 800px; line-height: 1.5; outline: none; }
+  .char { position: relative; }
+  .char.correct { color: #d1d0c5; }
+  .char.incorrect { color: #ca4754; text-decoration: underline; }
+  .char.active::before { /* Villogó kurzor */
+    content: ''; position: absolute; left: 0; bottom: 0; width: 2px; height: 100%;
+    background-color: #e2b714; animation: blink 1s infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  textarea { width: 100%; height: 100px; margin-bottom: 10px; }
+  button { padding: 10px 20px; cursor: pointer; }
+  #statsDisplay { color: #e2b714; font-size: 1.2rem; margin-top: 20px; }
+</style>
+
+<div id="setupDiv">
+  <textarea id="customTextInput" placeholder="Illeszd be a szöveget ide..."></textarea>
+  <button id="startBtn">Gépelés megkezdése</button>
+</div>
+
+<div id="typingArea" class="hidden" tabindex="0"></div>
+
+<div id="statsDisplay" class="hidden">
+  <p>Sebesség: <span id="wpmResult">0</span> WPM</p>
+  <p>Pontosság: <span id="accResult">0</span>%</p>
+  <button id="resetBtn">Újra</button>
+</div>
