@@ -17,6 +17,7 @@ const resetBtn = document.getElementById('resetBtn');
 const loadingMsg = document.getElementById('loadingMsg');
 const wpmResultEl = document.getElementById('wpmResult');
 const accResultEl = document.getElementById('accResult');
+const hiddenInput = document.getElementById('hiddenInput');
 
 // ---------- State ----------
 const state = {
@@ -226,12 +227,16 @@ function startTest() {
     highlightActiveGroup();
   }
   window.scrollTo(0, 0);
-  typingArea.focus();
+  focusInput();
 }
 
 async function handleStart() {
   const rawText = customTextInput.value.trim();
   if (!rawText) return;
+
+  // Focus the hidden input synchronously while we're still inside the
+  // user gesture — required for iOS to open the virtual keyboard later.
+  focusInput();
 
   startBtn.disabled = true;
   loadingMsg.classList.remove('hidden');
@@ -409,9 +414,83 @@ function handleReset() {
   typingArea.innerHTML = '';
   setupDiv.classList.remove('hidden');
   window.scrollTo(0, 0);
+  hiddenInput.blur();
+}
+
+function focusInput() {
+  hiddenInput.value = '';
+  hiddenInput.focus({ preventScroll: true });
+}
+
+function processTypedChar(char) {
+  if (!state.isTestActive) return;
+
+  const previousLine = recordKeystroke(char, new Date());
+
+  if (state.currentIndex === state.characters.length) {
+    finalizeLine(lineOf(state.characters.length - 1));
+    endTest();
+    return;
+  }
+
+  const nextLine = lineOf(state.currentIndex);
+  if (nextLine !== previousLine) {
+    finalizeLine(previousLine);
+    highlightActiveGroup();
+  }
+  state.characters[state.currentIndex].classList.add('active');
+}
+
+function handleBeforeInput(event) {
+  if (!state.isTestActive) return;
+
+  if (event.inputType === 'deleteContentBackward') {
+    event.preventDefault();
+    handleBackspace();
+    return;
+  }
+
+  const data = event.data;
+  if (data == null) return;
+
+  event.preventDefault();
+  for (const char of data) {
+    processTypedChar(char);
+    if (!state.isTestActive) break;
+  }
+}
+
+function handleInputFallback() {
+  // Some mobile IMEs don't honour preventDefault in beforeinput.
+  // Drain whatever ended up in the input and feed it through.
+  const value = hiddenInput.value;
+  if (!value) return;
+  hiddenInput.value = '';
+  for (const char of value) {
+    processTypedChar(char);
+    if (!state.isTestActive) break;
+  }
 }
 
 // ---------- Wire up ----------
 startBtn.addEventListener('click', handleStart);
 typingArea.addEventListener('keydown', handleKeydown);
+typingArea.addEventListener('mousedown', (e) => {
+  // Keep focus on the hidden input so the mobile keyboard stays open.
+  e.preventDefault();
+  focusInput();
+});
+typingArea.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  focusInput();
+}, { passive: false });
+hiddenInput.addEventListener('keydown', handleKeydown);
+hiddenInput.addEventListener('beforeinput', handleBeforeInput);
+hiddenInput.addEventListener('input', handleInputFallback);
+hiddenInput.addEventListener('blur', () => {
+  // If a test is in progress, snap focus back so the keyboard reopens.
+  if (state.isTestActive) {
+    setTimeout(() => focusInput(), 0);
+  }
+});
 resetBtn.addEventListener('click', handleReset);
