@@ -43,6 +43,10 @@ const manualInput = document.getElementById('manualInput');
 const manualBtn = document.getElementById('manualBtn');
 const bookmarkletEl = document.getElementById('bookmarklet');
 
+const recBtn = document.getElementById('recBtn');
+const recIndicator = document.getElementById('recIndicator');
+const recProgress = document.getElementById('recProgress');
+
 // ---------- State ----------
 const state = {
   urls: [],
@@ -51,6 +55,8 @@ const state = {
   intervalMs: 4000,
   loop: true,
   timer: null,
+  recording: false,
+  recStopRequested: false,
 };
 
 // ---------- Status helpers ----------
@@ -318,6 +324,205 @@ function loadFromHash() {
   return true;
 }
 
+// ---------- Recording ----------
+// Fixed 4K UHD landscape output. Smaller images are upscaled with high-quality
+// smoothing; portrait images are letterboxed. Keeps the video compatible with
+// standard 4K players (YouTube, TV, VLC) regardless of source aspect ratio.
+const REC_WIDTH = 3840;
+const REC_HEIGHT = 2160;
+const REC_HQ_SIZE = 'w3840-h3840';
+const REC_FPS = 30;
+const REC_FADE_MS = 500;
+// Bits per pixel per frame — ~0.15 gives visually near-lossless VP9 quality.
+const REC_BPP = 0.15;
+const REC_MIME_CANDIDATES = [
+  'video/webm;codecs=vp9',
+  'video/webm;codecs=vp8',
+  'video/webm',
+];
+
+function toHqUrl(url) {
+  const base = url.split('=')[0];
+  return `${base}=${REC_HQ_SIZE}`;
+}
+
+function loadCorsImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load ${url}`));
+    img.src = url;
+  });
+}
+
+function drawContain(ctx, img, w, h) {
+  const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+function fadeFrame(ctx, from, to, w, h, ms) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - start) / ms);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, w, h);
+      if (from) { ctx.globalAlpha = 1 - t; drawContain(ctx, from, w, h); }
+      if (to)   { ctx.globalAlpha = t;     drawContain(ctx, to, w, h); }
+      ctx.globalAlpha = 1;
+      if (t < 1 && !state.recStopRequested) requestAnimationFrame(step);
+      else resolve();
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+function holdFrames(ms) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    function step(now) {
+      if (state.recStopRequested || now - start >= ms) resolve();
+      else requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+function setRecUI(active) {
+  state.recording = active;
+  recIndicator.classList.toggle('hidden', !active);
+  recBtn.textContent = active ? '⏹ STOP' : '🎥 REC';
+  prevBtn.disabled = active;
+  nextBtn.disabled = active;
+  playBtn.disabled = active;
+  backBtn.disabled = active;
+}
+
+function updateRecProgress(i, n) {
+  recProgress.textContent = `${i} / ${n}`;
+}
+
+async function recordSlideshow() {
+  if (state.recording) {
+    state.recStopRequested = true;
+    return;
+  }
+  if (state.urls.length === 0) return;
+
+  if (typeof MediaRecorder === 'undefined' ||
+      typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
+    setStatus('error', 'Recording is not supported in this browser. Try Chrome, Edge or Firefox.');
+    return;
+  }
+  const mimeType = REC_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
+  if (!mimeType) {
+    setStatus('error', 'No supported WebM codec found in this browser.');
+    return;
+  }
+
+  const wasPlaying = state.playing;
+  pause();
+  state.recStopRequested = false;
+  setRecUI(true);
+  clearStatus();
+  setStatus('info', 'Preparing 4K recording...');
+
+  // Probe the first image at HQ so a failure fails fast, before we start recording.
+  let firstImg;
+  try {
+    firstImg = await loadCorsImage(toHqUrl(state.urls[0]));
+  } catch (err) {
+    setRecUI(false);
+    setStatus('error', `Could not load the first photo in HQ: ${err.message}`);
+    if (wasPlaying) play();
+    return;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = REC_WIDTH;
+  canvas.height = REC_HEIGHT;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, REC_WIDTH, REC_HEIGHT);
+
+  const stream = canvas.captureStream(REC_FPS);
+  const bitrate = Math.round(REC_WIDTH * REC_HEIGHT * REC_FPS * REC_BPP);
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
+  const chunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  const stopped = new Promise((r) => { recorder.onstop = r; });
+
+  const holdMs = Math.max(500, state.intervalMs - REC_FADE_MS);
+  const total = state.urls.length;
+  const failures = [];
+
+  clearStatus();
+  recorder.start();
+
+  try {
+    updateRecProgress(1, total);
+    let currentImg = firstImg;
+    // Preload the next image while the current one is on screen.
+    let nextPromise = total > 1 ? loadCorsImage(toHqUrl(state.urls[1])).catch(() => null) : null;
+
+    await fadeFrame(ctx, null, currentImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+    await holdFrames(holdMs);
+
+    for (let i = 1; i < total && !state.recStopRequested; i++) {
+      updateRecProgress(i + 1, total);
+      const nextImg = await nextPromise;
+      nextPromise = i + 1 < total
+        ? loadCorsImage(toHqUrl(state.urls[i + 1])).catch(() => null)
+        : null;
+      if (!nextImg) { failures.push(state.urls[i]); continue; }
+      await fadeFrame(ctx, currentImg, nextImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+      currentImg = nextImg;
+      if (!state.recStopRequested) await holdFrames(holdMs);
+    }
+
+    await fadeFrame(ctx, currentImg, null, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+  } catch (err) {
+    console.error(err);
+    setStatus('error', `Recording failed: ${err.message}`);
+  } finally {
+    if (recorder.state !== 'inactive') recorder.stop();
+    await stopped;
+    setRecUI(false);
+  }
+
+  if (chunks.length === 0) {
+    setStatus('error', 'Recording produced no data. This can happen if the images blocked CORS.');
+    if (wasPlaying) play();
+    return;
+  }
+
+  const blob = new Blob(chunks, { type: mimeType });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const filename = `gplay-slideshow-4k-${stamp}.webm`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+
+  const sizeMb = (blob.size / (1024 * 1024)).toFixed(1);
+  const mbps = (bitrate / 1_000_000).toFixed(1);
+  const stoppedEarly = state.recStopRequested ? ' (stopped early)' : '';
+  const skipped = failures.length ? ` — ${failures.length} image(s) skipped` : '';
+  setStatus('success',
+    `Video ready: ${filename} · ${REC_WIDTH}×${REC_HEIGHT} @ ${mbps} Mbps · ${sizeMb} MB${stoppedEarly}${skipped}`);
+
+  if (wasPlaying && !state.recStopRequested) play();
+}
+
 // ---------- Event wiring ----------
 loadBtn.addEventListener('click', loadAlbum);
 manualBtn.addEventListener('click', loadFromManual);
@@ -328,17 +533,18 @@ prevBtn.addEventListener('click', prev);
 nextBtn.addEventListener('click', next);
 playBtn.addEventListener('click', togglePlay);
 fsBtn.addEventListener('click', toggleFullscreen);
+recBtn.addEventListener('click', recordSlideshow);
 backBtn.addEventListener('click', backToSetup);
 
 document.addEventListener('keydown', (e) => {
   if (slideshow.classList.contains('hidden')) return;
   switch (e.key) {
-    case 'ArrowRight': next(); break;
-    case 'ArrowLeft':  prev(); break;
-    case ' ':          e.preventDefault(); togglePlay(); break;
+    case 'ArrowRight': if (!state.recording) next(); break;
+    case 'ArrowLeft':  if (!state.recording) prev(); break;
+    case ' ':          if (!state.recording) { e.preventDefault(); togglePlay(); } break;
     case 'f':
     case 'F':          toggleFullscreen(); break;
-    case 'Escape':     if (!document.fullscreenElement) backToSetup(); break;
+    case 'Escape':     if (!document.fullscreenElement && !state.recording) backToSetup(); break;
   }
 });
 

@@ -10,7 +10,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="gplay.css?v=4">
+  <link rel="stylesheet" href="gplay.css?v=7">
 </head>
 <body class="flex flex-col items-center min-h-screen p-6">
 
@@ -23,6 +23,8 @@
   </header>
 
   <main class="container">
+    <div id="statusMsg" class="hidden"></div>
+
     <div id="setupDiv" class="card border border-gray-700 bg-gray-900/50 p-8 rounded-xl shadow-2xl">
       <h2 class="text-xl mb-4 text-gray-300">&gt; Paste the album share link</h2>
       <p class="text-sm text-gray-500 mb-4">
@@ -50,7 +52,6 @@
       </div>
 
       <button id="loadBtn">&gt; Load slideshow</button>
-      <div id="statusMsg" class="hidden"></div>
 
       <div class="bookmarklet-block">
         <p class="text-sm text-gray-500 mb-3">
@@ -81,6 +82,7 @@
     <div id="slideshow" class="hidden">
       <div id="stage">
         <img id="slideImg" alt="" draggable="false">
+        <div id="recIndicator" class="hidden">REC · <span id="recProgress">0 / 0</span></div>
         <div id="stageHint">Use ← → to navigate, Space to play/pause, F for fullscreen</div>
       </div>
 
@@ -89,6 +91,7 @@
         <button id="playBtn" title="Play / Pause (Space)">❚❚</button>
         <button id="nextBtn" title="Next (→)">▶</button>
         <button id="fsBtn" title="Fullscreen (F)">⛶</button>
+        <button id="recBtn" title="Record slideshow as .webm video">🎥 REC</button>
         <button id="backBtn" title="Load a different album">↺ New album</button>
       </div>
 
@@ -100,6 +103,6 @@
     <p><a href="./index.html" class="hover:text-sky-400">← back to home</a> &nbsp;·&nbsp; © 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="gplay.js?v=4" defer></script>
+  <script src="gplay.js?v=7" defer></script>
 </body>
 </html>
