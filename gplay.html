@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPlay — Google Photos Slideshow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
+    .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+  </style>
+  <link rel="stylesheet" href="gplay.css?v=2">
+</head>
+<body class="flex flex-col items-center min-h-screen p-6">
+
+  <header class="text-center mb-10">
+    <h1 class="text-5xl font-bold mb-4 text-sky-400 glow">GPlay</h1>
+    <p class="text-gray-400">
+      Turn a <strong>public</strong> Google Photos album into a slideshow.<br>
+      &middot; Order preserved &middot; Keyboard &amp; touch controls &middot;
+    </p>
+  </header>
+
+  <main class="container">
+    <div id="setupDiv" class="card border border-gray-700 bg-gray-900/50 p-8 rounded-xl shadow-2xl">
+      <h2 class="text-xl mb-4 text-gray-300">&gt; Paste the album share link</h2>
+      <p class="text-sm text-gray-500 mb-4">
+        // Only <strong>publicly shared</strong> albums work (<code>photos.app.goo.gl/...</code> or
+        <code>photos.google.com/share/...</code>). Since GitHub Pages is static, the album HTML is
+        fetched through a public CORS proxy and image URLs are extracted client-side.
+      </p>
+
+      <input id="albumUrl" type="url" spellcheck="false" autocomplete="off"
+             placeholder="https://photos.app.goo.gl/...">
+
+      <div class="settings-grid">
+        <label class="setting-row">
+          <span>Interval (seconds)</span>
+          <input id="intervalInput" type="number" min="1" max="60" step="1" value="4">
+        </label>
+        <label class="setting-row">
+          <input id="autoplayInput" type="checkbox" checked>
+          <span>Auto-play on load</span>
+        </label>
+        <label class="setting-row">
+          <input id="loopInput" type="checkbox" checked>
+          <span>Loop at the end</span>
+        </label>
+      </div>
+
+      <button id="loadBtn">&gt; Load slideshow</button>
+      <div id="statusMsg" class="hidden"></div>
+
+      <details id="manualDetails" class="manual-block">
+        <summary>Auto-fetch blocked? Paste HTML or image URLs manually</summary>
+        <p class="text-sm text-gray-500 mt-3 mb-3">
+          // Public CORS proxies often get blocked by Google. Workaround:
+          open the album in a new tab, press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>U</kbd>
+          to view the page source, copy everything, and paste it below.
+          Alternatively, paste one image URL per line.
+        </p>
+        <textarea id="manualInput"
+                  placeholder="Paste view-source HTML here, OR one https://lh3.googleusercontent.com/... URL per line"></textarea>
+        <button id="manualBtn">&gt; Extract &amp; play from pasted text</button>
+      </details>
+    </div>
+
+    <div id="slideshow" class="hidden">
+      <div id="stage">
+        <img id="slideImg" alt="" draggable="false">
+        <div id="stageHint">Use ← → to navigate, Space to play/pause, F for fullscreen</div>
+      </div>
+
+      <div id="controls">
+        <button id="prevBtn" title="Previous (←)">◀</button>
+        <button id="playBtn" title="Play / Pause (Space)">❚❚</button>
+        <button id="nextBtn" title="Next (→)">▶</button>
+        <button id="fsBtn" title="Fullscreen (F)">⛶</button>
+        <button id="backBtn" title="Load a different album">↺ New album</button>
+      </div>
+
+      <div id="counter"><span id="counterText">0 / 0</span></div>
+    </div>
+  </main>
+
+  <footer class="mt-16 text-gray-600 text-sm">
+    <p><a href="./index.html" class="hover:text-sky-400">← back to home</a> &nbsp;·&nbsp; © 2026 Tibor | Sr Java Dev</p>
+  </footer>
+
+  <script src="gplay.js?v=2" defer></script>
+</body>
+</html>
