@@ -10,7 +10,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="gplay.css?v=11">
+  <link rel="stylesheet" href="gplay.css?v=13">
 </head>
 <body class="flex flex-col items-center min-h-screen p-6">
 
@@ -135,6 +135,38 @@
     <p><a href="./index.html" class="hover:text-sky-400">← back to home</a> &nbsp;·&nbsp; © 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="gplay.js?v=11" defer></script>
+  <div id="musicPlayer" class="collapsed" aria-label="YouTube Music player">
+    <button id="musicToggle" title="Open music player">🎵 Music</button>
+    <div id="musicPanel">
+      <div class="mp-header">
+        <span class="mp-title">YouTube Music</span>
+        <button id="musicClose" class="mp-close" title="Collapse">–</button>
+      </div>
+
+      <div class="mp-row">
+        <input id="playlistInput" type="text" spellcheck="false" autocomplete="off"
+               placeholder="paste music.youtube.com/playlist?list=... or list ID">
+        <button id="loadPlaylistBtn">Load</button>
+      </div>
+
+      <div class="mp-controls">
+        <button id="prevTrackBtn" title="Previous track">⏮</button>
+        <button id="playPauseBtn" title="Play / Pause">▶</button>
+        <button id="nextTrackBtn" title="Next track">⏭</button>
+        <input id="volumeSlider" type="range" min="0" max="100" value="60" title="Volume">
+      </div>
+
+      <div id="trackInfo">No playlist loaded</div>
+
+      <p class="mp-tip">
+        // Sign in to <a href="https://youtube.com" target="_blank" rel="noopener">youtube.com</a>
+        in this browser — with <strong>YouTube Premium</strong> the embedded player skips ads.
+      </p>
+
+      <div id="ytPlayer"></div>
+    </div>
+  </div>
+
+  <script src="gplay.js?v=12" defer></script>
 </body>
 </html>

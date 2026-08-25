@@ -742,3 +742,150 @@ bookmarkletEl.addEventListener('click', (e) => {
 
 loadFromHash();
 window.addEventListener('hashchange', loadFromHash);
+
+// ==========================================================================
+// YouTube Music mini-player
+// Uses YouTube's IFrame Player API to play any public playlist. The iframe
+// shares the user's youtube.com cookies, so a signed-in Premium account plays
+// without ads. YouTube Music playlist share URLs use the same `list=` ID as
+// standard YouTube playlists, so paste either form.
+// ==========================================================================
+(function initMusicPlayer() {
+  const LS_PLAYLIST = 'gplay.music.playlist';
+  const LS_VOLUME   = 'gplay.music.volume';
+  const LS_OPEN     = 'gplay.music.open';
+
+  const musicPlayer     = document.getElementById('musicPlayer');
+  const musicToggle     = document.getElementById('musicToggle');
+  const musicClose      = document.getElementById('musicClose');
+  const playlistInput   = document.getElementById('playlistInput');
+  const loadPlaylistBtn = document.getElementById('loadPlaylistBtn');
+  const prevTrackBtn    = document.getElementById('prevTrackBtn');
+  const playPauseBtn    = document.getElementById('playPauseBtn');
+  const nextTrackBtn    = document.getElementById('nextTrackBtn');
+  const volumeSlider    = document.getElementById('volumeSlider');
+  const trackInfo       = document.getElementById('trackInfo');
+
+  let ytPlayer = null;
+  let ytApiPromise = null;
+  let titlePollTimer = null;
+
+  function loadYtApi() {
+    if (ytApiPromise) return ytApiPromise;
+    ytApiPromise = new Promise((resolve) => {
+      window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    });
+    return ytApiPromise;
+  }
+
+  function extractPlaylistId(raw) {
+    const s = (raw || '').trim();
+    if (!s) return null;
+    if (/^[A-Za-z0-9_-]{10,}$/.test(s)) return s;
+    try {
+      const u = new URL(s);
+      return u.searchParams.get('list');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function setTrackInfo(text) {
+    trackInfo.textContent = text;
+  }
+
+  function updatePlayPauseIcon() {
+    if (!ytPlayer || !ytPlayer.getPlayerState) return;
+    const s = ytPlayer.getPlayerState();
+    playPauseBtn.textContent = s === 1 ? '❚❚' : '▶';
+  }
+
+  function pollTitle() {
+    if (!ytPlayer || !ytPlayer.getVideoData) return;
+    try {
+      const data = ytPlayer.getVideoData();
+      if (data && data.title) setTrackInfo(data.title);
+    } catch (_) { /* ignore */ }
+  }
+
+  async function ensurePlayer() {
+    if (ytPlayer) return ytPlayer;
+    await loadYtApi();
+    return new Promise((resolve) => {
+      ytPlayer = new YT.Player('ytPlayer', {
+        width: '1', height: '1',
+        playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0 },
+        events: {
+          onReady: () => {
+            const vol = parseInt(localStorage.getItem(LS_VOLUME) || '60', 10);
+            volumeSlider.value = vol;
+            ytPlayer.setVolume(vol);
+            resolve(ytPlayer);
+          },
+          onStateChange: () => {
+            updatePlayPauseIcon();
+            pollTitle();
+          },
+        },
+      });
+    });
+  }
+
+  async function loadPlaylist(listId) {
+    if (!listId) return;
+    await ensurePlayer();
+    ytPlayer.loadPlaylist({ list: listId, listType: 'playlist', index: 0 });
+    localStorage.setItem(LS_PLAYLIST, listId);
+    setTrackInfo('Loading playlist...');
+    clearInterval(titlePollTimer);
+    titlePollTimer = setInterval(pollTitle, 2000);
+  }
+
+  function openPanel() {
+    musicPlayer.classList.remove('collapsed');
+    localStorage.setItem(LS_OPEN, '1');
+  }
+  function closePanel() {
+    musicPlayer.classList.add('collapsed');
+    localStorage.setItem(LS_OPEN, '0');
+  }
+
+  musicToggle.addEventListener('click', openPanel);
+  musicClose.addEventListener('click', closePanel);
+
+  loadPlaylistBtn.addEventListener('click', () => {
+    const id = extractPlaylistId(playlistInput.value);
+    if (!id) {
+      setTrackInfo('Invalid playlist URL or ID.');
+      return;
+    }
+    loadPlaylist(id);
+  });
+  playlistInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadPlaylistBtn.click();
+  });
+
+  playPauseBtn.addEventListener('click', async () => {
+    await ensurePlayer();
+    const s = ytPlayer.getPlayerState && ytPlayer.getPlayerState();
+    if (s === 1) ytPlayer.pauseVideo(); else ytPlayer.playVideo();
+  });
+  prevTrackBtn.addEventListener('click', () => ytPlayer && ytPlayer.previousVideo && ytPlayer.previousVideo());
+  nextTrackBtn.addEventListener('click', () => ytPlayer && ytPlayer.nextVideo && ytPlayer.nextVideo());
+
+  volumeSlider.addEventListener('input', (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(v);
+    localStorage.setItem(LS_VOLUME, String(v));
+  });
+
+  // Restore previous session
+  const savedPlaylist = localStorage.getItem(LS_PLAYLIST);
+  if (savedPlaylist) playlistInput.value = savedPlaylist;
+  const savedVol = localStorage.getItem(LS_VOLUME);
+  if (savedVol) volumeSlider.value = savedVol;
+  if (localStorage.getItem(LS_OPEN) === '1') openPanel();
+})();
