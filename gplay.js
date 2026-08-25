@@ -11,12 +11,10 @@ const CORS_PROXIES = [
   (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}&raw=true`,
 ];
 
-// Extracts full googleusercontent image URLs from the album HTML.
-// Sample tokens found in the payload:
-//   https://lh3.googleusercontent.com/pw/AP1GczN...=w1920-h1080
-//   https://lh3.googleusercontent.com/a-/AOh14G...
-// We drop any trailing size spec (=w..., =s..., =-...) and reapply our own.
-const IMG_URL_REGEX = /https:\/\/lh3\.googleusercontent\.com\/[A-Za-z0-9_\-]+(?:\/[A-Za-z0-9_\-]+)*/g;
+// Only album photos are served under /pw/ (Photos Web). Avatars and other
+// account assets use /a/, /a-/, /ogw/, etc. — a positive filter on /pw/ is
+// far more reliable than trying to blacklist every avatar shape.
+const IMG_URL_REGEX = /https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g;
 
 const VALID_HOSTS = ['photos.app.goo.gl', 'photos.google.com'];
 const RENDER_SIZE = 'w2000-h1400'; // Google resizes on demand; keep aspect ratio.
@@ -116,8 +114,6 @@ function extractImageUrls(html) {
   const ordered = [];
   for (const raw of matches) {
     const base = raw.split('=')[0];
-    // Skip profile / avatar assets (path segment `a/` or `a-/`).
-    if (/\/a[-/]/.test(base)) continue;
     if (seen.has(base)) continue;
     seen.add(base);
     ordered.push(`${base}=${RENDER_SIZE}`);
@@ -300,10 +296,10 @@ function buildBookmarkletHref() {
   const target = location.origin + location.pathname;
   const body =
     "(function(){" +
-      "var re=/https:\\/\\/lh3\\.googleusercontent\\.com\\/[A-Za-z0-9_\\-]+(?:\\/[A-Za-z0-9_\\-]+)*/g;" +
+      "var re=/https:\\/\\/lh3\\.googleusercontent\\.com\\/pw\\/[A-Za-z0-9_\\-]+/g;" +
       "var m=document.documentElement.outerHTML.match(re)||[];" +
       "var s=new Set(),u=[];" +
-      "m.forEach(function(x){var b=x.split('=')[0];if(/\\/a[-\\/]/.test(b))return;if(s.has(b))return;s.add(b);u.push(b);});" +
+      "m.forEach(function(x){var b=x.split('=')[0];if(s.has(b))return;s.add(b);u.push(b);});" +
       "if(!u.length){alert('GPlay: no photos found. Scroll the whole album first, then click again.');return;}" +
       "window.open(" + JSON.stringify(target) + "+'#urls='+encodeURIComponent(u.join(String.fromCharCode(10))),'_blank');" +
     "})();";
