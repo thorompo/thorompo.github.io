@@ -27,6 +27,7 @@ const intervalInput = document.getElementById('intervalInput');
 const transitionSelect = document.getElementById('transitionSelect');
 const autoplayInput = document.getElementById('autoplayInput');
 const loopInput = document.getElementById('loopInput');
+const recQualitySelect = document.getElementById('recQualitySelect');
 const loadBtn = document.getElementById('loadBtn');
 const statusMsg = document.getElementById('statusMsg');
 
@@ -49,6 +50,10 @@ const recBtn = document.getElementById('recBtn');
 const recIndicator = document.getElementById('recIndicator');
 const recProgress = document.getElementById('recProgress');
 const transitionLive = document.getElementById('transitionLive');
+const speedSlider = document.getElementById('speedSlider');
+const speedLabel = document.getElementById('speedLabel');
+const intervalSlider = document.getElementById('intervalSlider');
+const intervalSliderLabel = document.getElementById('intervalSliderLabel');
 
 // ---------- State ----------
 const state = {
@@ -58,6 +63,7 @@ const state = {
   intervalMs: 4000,
   loop: true,
   transition: 'fade',
+  animMs: 1200,
   timer: null,
   frontLayer: null,
   transitioning: false,
@@ -66,7 +72,9 @@ const state = {
 };
 
 // ---------- Live transition config ----------
-const LIVE_ANIM_MS = 1200;
+// Slider maps: 0 = Slow, 1 = Med, 2 = Fast (higher value = higher speed).
+const SPEED_MS = [2200, 1200, 500];
+const SPEED_LABELS = ['Slow', 'Med', 'Fast'];
 const LIVE_TRANSITIONS = {
   fade:          { in: 'gp-fade-in',         out: 'gp-fade-out' },
   'slide-left':  { in: 'gp-slide-in-right',  out: 'gp-slide-out-left' },
@@ -221,17 +229,18 @@ async function showSlide(newIndex) {
 
   const kf = LIVE_TRANSITIONS[kind] || LIVE_TRANSITIONS.fade;
   const hasOutgoing = !!front.getAttribute('src');
+  const animMs = state.animMs;
 
   back.style.animation = 'none';
   front.style.animation = 'none';
   void back.offsetHeight; // force reflow so the next animation starts clean
   back.style.opacity = 1;
-  back.style.animation = `${kf.in} ${LIVE_ANIM_MS}ms ease forwards`;
+  back.style.animation = `${kf.in} ${animMs}ms ease forwards`;
   if (kf.out && hasOutgoing) {
-    front.style.animation = `${kf.out} ${LIVE_ANIM_MS}ms ease forwards`;
+    front.style.animation = `${kf.out} ${animMs}ms ease forwards`;
   }
 
-  await new Promise((resolve) => setTimeout(resolve, LIVE_ANIM_MS));
+  await new Promise((resolve) => setTimeout(resolve, animMs));
 
   front.style.animation = 'none';
   front.style.opacity = 0;
@@ -263,7 +272,7 @@ function scheduleNext() {
   clearTimeout(state.timer);
   state.timer = null;
   if (!state.playing) return;
-  const wait = Math.max(0, state.intervalMs - LIVE_ANIM_MS);
+  const wait = Math.max(0, state.intervalMs - state.animMs);
   state.timer = setTimeout(async () => {
     await showSlide(state.index + 1);
     scheduleNext();
@@ -282,7 +291,7 @@ function toggleFullscreen() {
 function startSlideshowWith(urls) {
   state.urls = urls;
   state.index = 0;
-  state.intervalMs = Math.max(1, parseInt(intervalInput.value, 10) || 4) * 1000;
+  applyIntervalSec(intervalInput.value);
   state.loop = loopInput.checked;
   applyTransition(transitionSelect.value || 'fade');
 
@@ -298,6 +307,25 @@ function applyTransition(kind) {
   state.transition = kind;
   if (transitionSelect.value !== kind) transitionSelect.value = kind;
   if (transitionLive.value  !== kind) transitionLive.value  = kind;
+}
+
+function applySpeed(index) {
+  const parsed = parseInt(index, 10);
+  const raw = Number.isNaN(parsed) ? 1 : parsed;
+  const i = Math.max(0, Math.min(SPEED_MS.length - 1, raw));
+  state.animMs = SPEED_MS[i];
+  speedLabel.textContent = SPEED_LABELS[i];
+  if (String(speedSlider.value) !== String(i)) speedSlider.value = i;
+}
+
+function applyIntervalSec(seconds) {
+  const parsed = parseInt(seconds, 10);
+  const raw = Number.isNaN(parsed) ? 4 : parsed;
+  const s = Math.max(1, Math.min(60, raw));
+  state.intervalMs = s * 1000;
+  intervalSliderLabel.textContent = `${s}s`;
+  if (String(intervalSlider.value) !== String(s) && s <= 15) intervalSlider.value = s;
+  if (String(intervalInput.value)  !== String(s)) intervalInput.value = s;
 }
 
 async function loadAlbum() {
@@ -402,16 +430,17 @@ function loadFromHash() {
 }
 
 // ---------- Recording ----------
-// Fixed 4K UHD landscape output. Smaller images are upscaled with high-quality
-// smoothing; portrait images are letterboxed. Keeps the video compatible with
-// standard 4K players (YouTube, TV, VLC) regardless of source aspect ratio.
-const REC_WIDTH = 3840;
-const REC_HEIGHT = 2160;
-const REC_HQ_SIZE = 'w3840-h3840';
+// Recording quality presets: canvas dimensions + HQ source size hint sent to
+// Google Photos (`=wW-hH`). The HQ hint is chosen a bit larger than the canvas
+// so we downsample rather than upscale on the encoder canvas.
+const REC_QUALITIES = {
+  720:  { w: 1280, h: 720,  hqSize: 'w1920-h1920', label: '720p'  },
+  1080: { w: 1920, h: 1080, hqSize: 'w2560-h2560', label: '1080p' },
+  1440: { w: 2560, h: 1440, hqSize: 'w3200-h3200', label: '1440p' },
+  2160: { w: 3840, h: 2160, hqSize: 'w3840-h3840', label: '4K'    },
+  4320: { w: 7680, h: 4320, hqSize: 'w7680-h7680', label: '8K'    },
+};
 const REC_FPS = 30;
-// 1200 ms gives ~36 frames at 30fps — long enough for slide/zoom/wipe to be
-// clearly visible; shorter feels choppy.
-const REC_FADE_MS = 1200;
 // Bits per pixel per frame — ~0.15 gives visually near-lossless VP9 quality.
 const REC_BPP = 0.15;
 const REC_MIME_CANDIDATES = [
@@ -420,9 +449,31 @@ const REC_MIME_CANDIDATES = [
   'video/webm',
 ];
 
-function toHqUrl(url) {
+function currentRecQuality() {
+  const q = parseInt(recQualitySelect.value, 10);
+  return REC_QUALITIES[q] || REC_QUALITIES[2160];
+}
+
+function toHqUrl(url, hqSize) {
   const base = url.split('=')[0];
-  return `${base}=${REC_HQ_SIZE}`;
+  return `${base}=${hqSize}`;
+}
+
+// Probes every image at native resolution (=s0) to find the largest width and
+// height across the album (independent axes). Used by the "Original" preset.
+async function probeAlbumMaxDims() {
+  let maxW = 0, maxH = 0;
+  const total = state.urls.length;
+  for (let i = 0; i < total; i++) {
+    if (state.recStopRequested) break;
+    setStatus('info', `Probing image sizes ${i + 1} / ${total}...`);
+    try {
+      const img = await loadCorsImage(toHqUrl(state.urls[i], 's0'));
+      if (img.naturalWidth > maxW)  maxW = img.naturalWidth;
+      if (img.naturalHeight > maxH) maxH = img.naturalHeight;
+    } catch (_) { /* skip failures */ }
+  }
+  return { w: maxW, h: maxH };
 }
 
 function loadCorsImage(url) {
@@ -436,6 +487,7 @@ function loadCorsImage(url) {
 }
 
 function drawContain(ctx, img, w, h) {
+  // Contain fit: preserve aspect ratio, letterbox with black bars if needed.
   const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
   const dw = img.naturalWidth * scale;
   const dh = img.naturalHeight * scale;
@@ -594,12 +646,41 @@ async function recordSlideshow() {
   state.recStopRequested = false;
   setRecUI(true);
   clearStatus();
-  setStatus('info', 'Preparing 4K recording...');
+
+  let RW, RH, hqSize, label;
+  if (recQualitySelect.value === 'original') {
+    setStatus('info', 'Probing album for native resolution — this loads every photo at =s0 and may take a while...');
+    hqSize = 's0';
+    const dims = await probeAlbumMaxDims();
+    if (state.recStopRequested) {
+      setRecUI(false);
+      setStatus('info', 'Probing cancelled.');
+      if (wasPlaying) play();
+      return;
+    }
+    if (!dims.w || !dims.h) {
+      setRecUI(false);
+      setStatus('error', 'Could not determine album native resolution (CORS or load failure).');
+      if (wasPlaying) play();
+      return;
+    }
+    RW = Math.max(2, Math.round(dims.w / 2) * 2);
+    RH = Math.max(2, Math.round(dims.h / 2) * 2);
+    label = `original-${RW}x${RH}`;
+    setStatus('info', `Native resolution: ${RW}×${RH}. Preparing recording...`);
+  } else {
+    const quality = currentRecQuality();
+    RW = quality.w;
+    RH = quality.h;
+    hqSize = quality.hqSize;
+    label = quality.label;
+    setStatus('info', `Preparing ${quality.label} recording...`);
+  }
 
   // Probe the first image at HQ so a failure fails fast, before we start recording.
   let firstImg;
   try {
-    firstImg = await loadCorsImage(toHqUrl(state.urls[0]));
+    firstImg = await loadCorsImage(toHqUrl(state.urls[0], hqSize));
   } catch (err) {
     setRecUI(false);
     setStatus('error', `Could not load the first photo in HQ: ${err.message}`);
@@ -608,22 +689,25 @@ async function recordSlideshow() {
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = REC_WIDTH;
-  canvas.height = REC_HEIGHT;
+  canvas.width = RW;
+  canvas.height = RH;
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, REC_WIDTH, REC_HEIGHT);
+  ctx.fillRect(0, 0, RW, RH);
 
   const stream = canvas.captureStream(REC_FPS);
-  const bitrate = Math.round(REC_WIDTH * REC_HEIGHT * REC_FPS * REC_BPP);
+  const bitrate = Math.round(RW * RH * REC_FPS * REC_BPP);
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   const stopped = new Promise((r) => { recorder.onstop = r; });
 
-  const holdMs = Math.max(500, state.intervalMs - REC_FADE_MS);
+  // Snapshot the anim duration once so mid-recording slider changes don't skew
+  // the intro/outro pacing.
+  const fadeMs = state.animMs;
+  const holdMs = Math.max(500, state.intervalMs - fadeMs);
   const total = state.urls.length;
   const failures = [];
 
@@ -634,25 +718,25 @@ async function recordSlideshow() {
     updateRecProgress(1, total);
     let currentImg = firstImg;
     // Preload the next image while the current one is on screen.
-    let nextPromise = total > 1 ? loadCorsImage(toHqUrl(state.urls[1])).catch(() => null) : null;
+    let nextPromise = total > 1 ? loadCorsImage(toHqUrl(state.urls[1], hqSize)).catch(() => null) : null;
 
     // Intro / outro always fade to keep them cinematic regardless of style.
-    await transitionFrame('fade', ctx, null, currentImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+    await transitionFrame('fade', ctx, null, currentImg, RW, RH, fadeMs);
     await holdFrames(holdMs);
 
     for (let i = 1; i < total && !state.recStopRequested; i++) {
       updateRecProgress(i + 1, total);
       const nextImg = await nextPromise;
       nextPromise = i + 1 < total
-        ? loadCorsImage(toHqUrl(state.urls[i + 1])).catch(() => null)
+        ? loadCorsImage(toHqUrl(state.urls[i + 1], hqSize)).catch(() => null)
         : null;
       if (!nextImg) { failures.push(state.urls[i]); continue; }
-      await transitionFrame(state.transition, ctx, currentImg, nextImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+      await transitionFrame(state.transition, ctx, currentImg, nextImg, RW, RH, fadeMs);
       currentImg = nextImg;
       if (!state.recStopRequested) await holdFrames(holdMs);
     }
 
-    await transitionFrame('fade', ctx, currentImg, null, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+    await transitionFrame('fade', ctx, currentImg, null, RW, RH, fadeMs);
   } catch (err) {
     console.error(err);
     setStatus('error', `Recording failed: ${err.message}`);
@@ -670,7 +754,7 @@ async function recordSlideshow() {
 
   const blob = new Blob(chunks, { type: mimeType });
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const filename = `gplay-slideshow-4k-${stamp}.webm`;
+  const filename = `gplay-slideshow-${label.toLowerCase()}-${stamp}.webm`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -685,7 +769,7 @@ async function recordSlideshow() {
   const stoppedEarly = state.recStopRequested ? ' (stopped early)' : '';
   const skipped = failures.length ? ` — ${failures.length} image(s) skipped` : '';
   setStatus('success',
-    `Video ready: ${filename} · ${REC_WIDTH}×${REC_HEIGHT} @ ${mbps} Mbps · ${sizeMb} MB${stoppedEarly}${skipped}`);
+    `Video ready: ${filename} · ${RW}×${RH} @ ${mbps} Mbps · ${sizeMb} MB${stoppedEarly}${skipped}`);
 
   if (wasPlaying && !state.recStopRequested) play();
 }
@@ -705,6 +789,9 @@ backBtn.addEventListener('click', backToSetup);
 
 transitionSelect.addEventListener('change', (e) => applyTransition(e.target.value));
 transitionLive.addEventListener('change',   (e) => applyTransition(e.target.value));
+speedSlider.addEventListener('input',        (e) => applySpeed(e.target.value));
+intervalSlider.addEventListener('input',     (e) => applyIntervalSec(e.target.value));
+intervalInput.addEventListener('input',      (e) => applyIntervalSec(e.target.value));
 
 document.addEventListener('keydown', (e) => {
   if (slideshow.classList.contains('hidden')) return;
@@ -739,6 +826,9 @@ bookmarkletEl.addEventListener('click', (e) => {
   e.preventDefault();
   setStatus('info', 'Drag this button to your bookmarks bar, then click it while viewing a public Google Photos album.');
 });
+
+applySpeed(speedSlider.value);
+applyIntervalSec(intervalInput.value);
 
 loadFromHash();
 window.addEventListener('hashchange', loadFromHash);

@@ -455,6 +455,18 @@ button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; tran
   border-color: #38bdf8;
 }
 
+.speed-control input[type="range"] {
+  width: 90px;
+  accent-color: #38bdf8;
+  cursor: pointer;
+}
+#speedLabel {
+  min-width: 42px;
+  color: #38bdf8;
+  font-size: 0.8rem;
+  text-align: right;
+}
+
 /* ---------- Fullscreen ---------- */
 
 #stage:fullscreen {
