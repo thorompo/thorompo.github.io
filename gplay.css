@@ -59,6 +59,21 @@
   padding: 4px 8px;
   font-family: 'JetBrains Mono', monospace;
 }
+.setting-row select {
+  margin-left: auto;
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.setting-row select:focus {
+  outline: none;
+  border-color: #38bdf8;
+}
 .setting-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
@@ -182,15 +197,33 @@ button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; tran
   justify-content: center;
 }
 
-#slideImg {
-  max-width: 100%;
-  max-height: 100%;
+/* Two overlapping <img> layers so we can crossfade / slide / zoom / wipe
+   between them purely in CSS. See gplay.js showSlide(). */
+#stage .layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  opacity: 0;
   user-select: none;
   -webkit-user-drag: none;
-  transition: opacity 0.35s ease;
+  will-change: transform, opacity, clip-path;
 }
-#slideImg.loading { opacity: 0; }
+
+@keyframes gp-fade-in       { from { opacity: 0; } to { opacity: 1; } }
+@keyframes gp-fade-out      { from { opacity: 1; } to { opacity: 0; } }
+@keyframes gp-slide-in-right  { from { transform: translateX(100%);  opacity: 1; } to { transform: translateX(0);     opacity: 1; } }
+@keyframes gp-slide-out-left  { from { transform: translateX(0);     opacity: 1; } to { transform: translateX(-100%); opacity: 1; } }
+@keyframes gp-slide-in-left   { from { transform: translateX(-100%); opacity: 1; } to { transform: translateX(0);     opacity: 1; } }
+@keyframes gp-slide-out-right { from { transform: translateX(0);     opacity: 1; } to { transform: translateX(100%);  opacity: 1; } }
+@keyframes gp-slide-in-bottom { from { transform: translateY(100%);  opacity: 1; } to { transform: translateY(0);     opacity: 1; } }
+@keyframes gp-slide-out-top   { from { transform: translateY(0);     opacity: 1; } to { transform: translateY(-100%); opacity: 1; } }
+@keyframes gp-slide-in-top    { from { transform: translateY(-100%); opacity: 1; } to { transform: translateY(0);     opacity: 1; } }
+@keyframes gp-slide-out-bottom{ from { transform: translateY(0);     opacity: 1; } to { transform: translateY(100%);  opacity: 1; } }
+@keyframes gp-zoom-in         { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1);    opacity: 1; } }
+@keyframes gp-zoom-out        { from { transform: scale(1);    opacity: 1; } to { transform: scale(1.15); opacity: 0; } }
+@keyframes gp-wipe-in         { from { clip-path: inset(0 100% 0 0); opacity: 1; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
 
 #stageHint {
   position: absolute;
@@ -253,6 +286,39 @@ button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; tran
   margin-top: 10px;
   color: #38bdf8;
   font-size: 0.9rem;
+}
+
+#liveControls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: #c9d1d9;
+  font-size: 0.9rem;
+}
+#liveControls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(17, 24, 39, 0.5);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+#liveControls select {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+#liveControls select:focus {
+  outline: none;
+  border-color: #38bdf8;
 }
 
 /* ---------- Fullscreen ---------- */

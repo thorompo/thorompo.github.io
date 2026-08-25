@@ -24,13 +24,15 @@ const setupDiv = document.getElementById('setupDiv');
 const slideshow = document.getElementById('slideshow');
 const albumUrlInput = document.getElementById('albumUrl');
 const intervalInput = document.getElementById('intervalInput');
+const transitionSelect = document.getElementById('transitionSelect');
 const autoplayInput = document.getElementById('autoplayInput');
 const loopInput = document.getElementById('loopInput');
 const loadBtn = document.getElementById('loadBtn');
 const statusMsg = document.getElementById('statusMsg');
 
 const stage = document.getElementById('stage');
-const slideImg = document.getElementById('slideImg');
+const slideImgA = document.getElementById('slideImgA');
+const slideImgB = document.getElementById('slideImgB');
 const prevBtn = document.getElementById('prevBtn');
 const playBtn = document.getElementById('playBtn');
 const nextBtn = document.getElementById('nextBtn');
@@ -46,6 +48,7 @@ const bookmarkletEl = document.getElementById('bookmarklet');
 const recBtn = document.getElementById('recBtn');
 const recIndicator = document.getElementById('recIndicator');
 const recProgress = document.getElementById('recProgress');
+const transitionLive = document.getElementById('transitionLive');
 
 // ---------- State ----------
 const state = {
@@ -54,9 +57,24 @@ const state = {
   playing: false,
   intervalMs: 4000,
   loop: true,
+  transition: 'fade',
   timer: null,
+  frontLayer: null,
+  transitioning: false,
   recording: false,
   recStopRequested: false,
+};
+
+// ---------- Live transition config ----------
+const LIVE_ANIM_MS = 1200;
+const LIVE_TRANSITIONS = {
+  fade:          { in: 'gp-fade-in',         out: 'gp-fade-out' },
+  'slide-left':  { in: 'gp-slide-in-right',  out: 'gp-slide-out-left' },
+  'slide-right': { in: 'gp-slide-in-left',   out: 'gp-slide-out-right' },
+  'slide-up':    { in: 'gp-slide-in-bottom', out: 'gp-slide-out-top' },
+  'slide-down':  { in: 'gp-slide-in-top',    out: 'gp-slide-out-bottom' },
+  zoom:          { in: 'gp-zoom-in',         out: 'gp-zoom-out' },
+  wipe:          { in: 'gp-wipe-in',         out: null },
 };
 
 // ---------- Status helpers ----------
@@ -111,8 +129,15 @@ async function fetchThroughProxy(albumUrl) {
 }
 
 // ---------- Parse image URLs from album HTML ----------
+// Google Photos embeds URLs inside JSON payloads where slashes are escaped
+// as `\/` (and occasionally as `\u002F`). The view-source paste therefore
+// contains escaped slashes that the raw regex would miss — normalize them.
+function normalizeEscapedSlashes(text) {
+  return text.replace(/\\\//g, '/').replace(/\\u002[Ff]/g, '/');
+}
+
 function extractImageUrls(html) {
-  const matches = html.match(IMG_URL_REGEX) || [];
+  const matches = normalizeEscapedSlashes(html).match(IMG_URL_REGEX) || [];
 
   // Preserve first-occurrence order (matches album order in the embedded data)
   // and strip any prior size spec so we can apply a consistent one.
@@ -152,57 +177,97 @@ function extractFromManualInput(raw) {
 }
 
 // ---------- Slideshow control ----------
-function showSlide(newIndex) {
+function loadImageInto(imgEl, src) {
+  return new Promise((resolve) => {
+    imgEl.onload = () => resolve(true);
+    imgEl.onerror = () => resolve(false);
+    imgEl.src = src;
+  });
+}
+
+async function showSlide(newIndex) {
   if (state.urls.length === 0) return;
+  if (state.transitioning) return;
 
   let i = newIndex;
   if (i < 0) i = state.loop ? state.urls.length - 1 : 0;
   if (i >= state.urls.length) {
-    if (state.loop) {
-      i = 0;
-    } else {
-      i = state.urls.length - 1;
-      pause();
-    }
+    if (state.loop) i = 0;
+    else { i = state.urls.length - 1; pause(); }
   }
   state.index = i;
-  slideImg.classList.add('loading');
-  slideImg.src = state.urls[i];
-  slideImg.onload = () => slideImg.classList.remove('loading');
-  slideImg.onerror = () => slideImg.classList.remove('loading');
+  counterText.textContent = `${i + 1} / ${state.urls.length}`;
 
-  // Preload the next image for smoother transitions.
+  // Preload the next image for smoother later transitions.
   const nextIdx = (i + 1) % state.urls.length;
-  if (state.urls[nextIdx]) {
-    const preload = new Image();
-    preload.src = state.urls[nextIdx];
+  if (state.urls[nextIdx]) new Image().src = state.urls[nextIdx];
+
+  const front = state.frontLayer || slideImgA;
+  const back = front === slideImgA ? slideImgB : slideImgA;
+  const kind = resolveTransition(state.transition);
+
+  state.transitioning = true;
+  await loadImageInto(back, state.urls[i]);
+
+  if (kind === 'cut') {
+    back.style.animation = 'none';
+    back.style.opacity = 1;
+    front.style.animation = 'none';
+    front.style.opacity = 0;
+    state.frontLayer = back;
+    state.transitioning = false;
+    return;
   }
 
-  counterText.textContent = `${i + 1} / ${state.urls.length}`;
+  const kf = LIVE_TRANSITIONS[kind] || LIVE_TRANSITIONS.fade;
+  const hasOutgoing = !!front.getAttribute('src');
+
+  back.style.animation = 'none';
+  front.style.animation = 'none';
+  void back.offsetHeight; // force reflow so the next animation starts clean
+  back.style.opacity = 1;
+  back.style.animation = `${kf.in} ${LIVE_ANIM_MS}ms ease forwards`;
+  if (kf.out && hasOutgoing) {
+    front.style.animation = `${kf.out} ${LIVE_ANIM_MS}ms ease forwards`;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, LIVE_ANIM_MS));
+
+  front.style.animation = 'none';
+  front.style.opacity = 0;
+  back.style.animation = 'none';
+  back.style.opacity = 1;
+  state.frontLayer = back;
+  state.transitioning = false;
 }
 
-function next() { showSlide(state.index + 1); restartTimerIfPlaying(); }
-function prev() { showSlide(state.index - 1); restartTimerIfPlaying(); }
+function next() { showSlide(state.index + 1).then(scheduleNext); }
+function prev() { showSlide(state.index - 1).then(scheduleNext); }
 
 function play() {
   state.playing = true;
   playBtn.textContent = '❚❚';
   playBtn.title = 'Pause (Space)';
-  restartTimerIfPlaying();
+  scheduleNext();
 }
 function pause() {
   state.playing = false;
   playBtn.textContent = '▶';
   playBtn.title = 'Play (Space)';
-  clearInterval(state.timer);
+  clearTimeout(state.timer);
   state.timer = null;
 }
 function togglePlay() { state.playing ? pause() : play(); }
 
-function restartTimerIfPlaying() {
-  clearInterval(state.timer);
+function scheduleNext() {
+  clearTimeout(state.timer);
+  state.timer = null;
   if (!state.playing) return;
-  state.timer = setInterval(() => showSlide(state.index + 1), state.intervalMs);
+  const wait = Math.max(0, state.intervalMs - LIVE_ANIM_MS);
+  state.timer = setTimeout(async () => {
+    await showSlide(state.index + 1);
+    scheduleNext();
+  }, wait);
 }
 
 function toggleFullscreen() {
@@ -219,6 +284,7 @@ function startSlideshowWith(urls) {
   state.index = 0;
   state.intervalMs = Math.max(1, parseInt(intervalInput.value, 10) || 4) * 1000;
   state.loop = loopInput.checked;
+  applyTransition(transitionSelect.value || 'fade');
 
   setStatus('success', `Loaded ${urls.length} photo${urls.length === 1 ? '' : 's'}.`);
   setupDiv.classList.add('hidden');
@@ -226,6 +292,12 @@ function startSlideshowWith(urls) {
 
   showSlide(0);
   if (autoplayInput.checked) play(); else pause();
+}
+
+function applyTransition(kind) {
+  state.transition = kind;
+  if (transitionSelect.value !== kind) transitionSelect.value = kind;
+  if (transitionLive.value  !== kind) transitionLive.value  = kind;
 }
 
 async function loadAlbum() {
@@ -288,7 +360,12 @@ function backToSetup() {
   pause();
   slideshow.classList.add('hidden');
   setupDiv.classList.remove('hidden');
-  slideImg.removeAttribute('src');
+  for (const layer of [slideImgA, slideImgB]) {
+    layer.removeAttribute('src');
+    layer.style.animation = 'none';
+    layer.style.opacity = 0;
+  }
+  state.frontLayer = null;
   state.urls = [];
   state.index = 0;
   clearStatus();
@@ -332,7 +409,9 @@ const REC_WIDTH = 3840;
 const REC_HEIGHT = 2160;
 const REC_HQ_SIZE = 'w3840-h3840';
 const REC_FPS = 30;
-const REC_FADE_MS = 500;
+// 1200 ms gives ~36 frames at 30fps — long enough for slide/zoom/wipe to be
+// clearly visible; shorter feels choppy.
+const REC_FADE_MS = 1200;
 // Bits per pixel per frame — ~0.15 gives visually near-lossless VP9 quality.
 const REC_BPP = 0.15;
 const REC_MIME_CANDIDATES = [
@@ -363,15 +442,102 @@ function drawContain(ctx, img, w, h) {
   ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
 }
 
-function fadeFrame(ctx, from, to, w, h, ms) {
+// ---------- Transition renderers (canvas) ----------
+// Each receives (ctx, from, to, w, h, t) with t in [0,1]. `from`/`to` may be
+// null for the intro / outro fades (fade-in from black, fade-out to black).
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function renderFade(ctx, from, to, w, h, t) {
+  if (from) { ctx.globalAlpha = 1 - t; drawContain(ctx, from, w, h); }
+  if (to)   { ctx.globalAlpha = t;     drawContain(ctx, to,   w, h); }
+  ctx.globalAlpha = 1;
+}
+
+function makeSlideRenderer(dx, dy) {
+  return function (ctx, from, to, w, h, t) {
+    const e = easeInOutCubic(t);
+    ctx.save();
+    if (from) {
+      ctx.translate(w * dx * e, h * dy * e);
+      drawContain(ctx, from, w, h);
+      ctx.translate(-w * dx * e, -h * dy * e);
+    }
+    if (to) {
+      ctx.translate(-w * dx * (1 - e), -h * dy * (1 - e));
+      drawContain(ctx, to, w, h);
+    }
+    ctx.restore();
+  };
+}
+
+function renderZoom(ctx, from, to, w, h, t) {
+  const e = easeInOutCubic(t);
+  if (from) {
+    ctx.globalAlpha = 1 - e;
+    const s = 1 + 0.15 * e;
+    ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(s, s); ctx.translate(-w / 2, -h / 2);
+    drawContain(ctx, from, w, h);
+    ctx.restore();
+  }
+  if (to) {
+    ctx.globalAlpha = e;
+    const s = 0.85 + 0.15 * e;
+    ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(s, s); ctx.translate(-w / 2, -h / 2);
+    drawContain(ctx, to, w, h);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function renderWipe(ctx, from, to, w, h, t) {
+  const e = easeInOutCubic(t);
+  if (from) drawContain(ctx, from, w, h);
+  if (to) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w * e, h);
+    ctx.clip();
+    drawContain(ctx, to, w, h);
+    ctx.restore();
+  }
+}
+
+const TRANSITIONS = {
+  fade:          renderFade,
+  'slide-left':  makeSlideRenderer(-1,  0),
+  'slide-right': makeSlideRenderer( 1,  0),
+  'slide-up':    makeSlideRenderer( 0, -1),
+  'slide-down':  makeSlideRenderer( 0,  1),
+  zoom:          renderZoom,
+  wipe:          renderWipe,
+};
+const RANDOM_POOL = ['fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom', 'wipe'];
+
+function resolveTransition(kind) {
+  if (kind === 'random') return RANDOM_POOL[Math.floor(Math.random() * RANDOM_POOL.length)];
+  if (kind === 'cut')    return 'cut';
+  return TRANSITIONS[kind] ? kind : 'fade';
+}
+
+function transitionFrame(kind, ctx, from, to, w, h, ms) {
   return new Promise((resolve) => {
+    const effective = resolveTransition(kind);
+    if (effective === 'cut') {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, w, h);
+      if (to) drawContain(ctx, to, w, h);
+      resolve();
+      return;
+    }
+    const render = TRANSITIONS[effective] || renderFade;
     const start = performance.now();
     function step(now) {
       const t = Math.min(1, (now - start) / ms);
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, w, h);
-      if (from) { ctx.globalAlpha = 1 - t; drawContain(ctx, from, w, h); }
-      if (to)   { ctx.globalAlpha = t;     drawContain(ctx, to, w, h); }
+      render(ctx, from, to, w, h, t);
       ctx.globalAlpha = 1;
       if (t < 1 && !state.recStopRequested) requestAnimationFrame(step);
       else resolve();
@@ -470,7 +636,8 @@ async function recordSlideshow() {
     // Preload the next image while the current one is on screen.
     let nextPromise = total > 1 ? loadCorsImage(toHqUrl(state.urls[1])).catch(() => null) : null;
 
-    await fadeFrame(ctx, null, currentImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+    // Intro / outro always fade to keep them cinematic regardless of style.
+    await transitionFrame('fade', ctx, null, currentImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
     await holdFrames(holdMs);
 
     for (let i = 1; i < total && !state.recStopRequested; i++) {
@@ -480,12 +647,12 @@ async function recordSlideshow() {
         ? loadCorsImage(toHqUrl(state.urls[i + 1])).catch(() => null)
         : null;
       if (!nextImg) { failures.push(state.urls[i]); continue; }
-      await fadeFrame(ctx, currentImg, nextImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+      await transitionFrame(state.transition, ctx, currentImg, nextImg, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
       currentImg = nextImg;
       if (!state.recStopRequested) await holdFrames(holdMs);
     }
 
-    await fadeFrame(ctx, currentImg, null, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
+    await transitionFrame('fade', ctx, currentImg, null, REC_WIDTH, REC_HEIGHT, REC_FADE_MS);
   } catch (err) {
     console.error(err);
     setStatus('error', `Recording failed: ${err.message}`);
@@ -535,6 +702,9 @@ playBtn.addEventListener('click', togglePlay);
 fsBtn.addEventListener('click', toggleFullscreen);
 recBtn.addEventListener('click', recordSlideshow);
 backBtn.addEventListener('click', backToSetup);
+
+transitionSelect.addEventListener('change', (e) => applyTransition(e.target.value));
+transitionLive.addEventListener('change',   (e) => applyTransition(e.target.value));
 
 document.addEventListener('keydown', (e) => {
   if (slideshow.classList.contains('hidden')) return;

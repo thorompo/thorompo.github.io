@@ -10,7 +10,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="gplay.css?v=7">
+  <link rel="stylesheet" href="gplay.css?v=11">
 </head>
 <body class="flex flex-col items-center min-h-screen p-6">
 
@@ -40,6 +40,20 @@
         <label class="setting-row">
           <span>Interval (seconds)</span>
           <input id="intervalInput" type="number" min="1" max="60" step="1" value="4">
+        </label>
+        <label class="setting-row">
+          <span>Transition</span>
+          <select id="transitionSelect">
+            <option value="fade" selected>Fade</option>
+            <option value="cut">Cut</option>
+            <option value="slide-left">Slide left</option>
+            <option value="slide-right">Slide right</option>
+            <option value="slide-up">Slide up</option>
+            <option value="slide-down">Slide down</option>
+            <option value="zoom">Zoom</option>
+            <option value="wipe">Wipe</option>
+            <option value="random">Random</option>
+          </select>
         </label>
         <label class="setting-row">
           <input id="autoplayInput" type="checkbox" checked>
@@ -81,7 +95,8 @@
 
     <div id="slideshow" class="hidden">
       <div id="stage">
-        <img id="slideImg" alt="" draggable="false">
+        <img id="slideImgA" class="layer" alt="" draggable="false">
+        <img id="slideImgB" class="layer" alt="" draggable="false">
         <div id="recIndicator" class="hidden">REC · <span id="recProgress">0 / 0</span></div>
         <div id="stageHint">Use ← → to navigate, Space to play/pause, F for fullscreen</div>
       </div>
@@ -95,6 +110,23 @@
         <button id="backBtn" title="Load a different album">↺ New album</button>
       </div>
 
+      <div id="liveControls">
+        <label>
+          <span>Transition</span>
+          <select id="transitionLive">
+            <option value="fade">Fade</option>
+            <option value="cut">Cut</option>
+            <option value="slide-left">Slide left</option>
+            <option value="slide-right">Slide right</option>
+            <option value="slide-up">Slide up</option>
+            <option value="slide-down">Slide down</option>
+            <option value="zoom">Zoom</option>
+            <option value="wipe">Wipe</option>
+            <option value="random">Random</option>
+          </select>
+        </label>
+      </div>
+
       <div id="counter"><span id="counterText">0 / 0</span></div>
     </div>
   </main>
@@ -103,6 +135,6 @@
     <p><a href="./index.html" class="hover:text-sky-400">← back to home</a> &nbsp;·&nbsp; © 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="gplay.js?v=7" defer></script>
+  <script src="gplay.js?v=11" defer></script>
 </body>
 </html>
