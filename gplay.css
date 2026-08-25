@@ -94,6 +94,31 @@ button:disabled { background: #374151; color: #6b7280; cursor: not-allowed; tran
 #statusMsg.error   { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
 #statusMsg.success { color: #5eead4; border-color: rgba(94, 234, 212, 0.4); }
 
+/* ---------- Bookmarklet ---------- */
+
+.bookmarklet-block {
+  margin-top: 20px;
+  border: 1px dashed #374151;
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(17, 24, 39, 0.35);
+}
+.bookmarklet-btn {
+  display: inline-block;
+  padding: 10px 18px;
+  background: #38bdf8;
+  color: #0d1117 !important;
+  font-weight: bold;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: grab;
+  font-family: 'JetBrains Mono', monospace;
+  transition: background-color 0.2s, transform 0.2s;
+  user-select: none;
+}
+.bookmarklet-btn:hover { background: #7dd3fc; transform: translateY(-1px); }
+.bookmarklet-btn:active { cursor: grabbing; }
+
 /* ---------- Manual fallback ---------- */
 
 .manual-block {

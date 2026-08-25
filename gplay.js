@@ -43,6 +43,7 @@ const counterText = document.getElementById('counterText');
 const manualDetails = document.getElementById('manualDetails');
 const manualInput = document.getElementById('manualInput');
 const manualBtn = document.getElementById('manualBtn');
+const bookmarkletEl = document.getElementById('bookmarklet');
 
 // ---------- State ----------
 const state = {
@@ -289,6 +290,36 @@ function backToSetup() {
   state.urls = [];
   state.index = 0;
   clearStatus();
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+}
+
+// ---------- Bookmarklet ----------
+// Runs on the Google Photos album page (where CORS doesn't apply because it
+// runs in that origin) and hands the extracted URLs to GPlay via URL hash.
+function buildBookmarkletHref() {
+  const target = location.origin + location.pathname;
+  const body =
+    "(function(){" +
+      "var re=/https:\\/\\/lh3\\.googleusercontent\\.com\\/[A-Za-z0-9_\\-]+(?:\\/[A-Za-z0-9_\\-]+)*/g;" +
+      "var m=document.documentElement.outerHTML.match(re)||[];" +
+      "var s=new Set(),u=[];" +
+      "m.forEach(function(x){var b=x.split('=')[0];if(/\\/a[-\\/]/.test(b))return;if(s.has(b))return;s.add(b);u.push(b);});" +
+      "if(!u.length){alert('GPlay: no photos found. Scroll the whole album first, then click again.');return;}" +
+      "window.open(" + JSON.stringify(target) + "+'#urls='+encodeURIComponent(u.join(String.fromCharCode(10))),'_blank');" +
+    "})();";
+  return 'javascript:' + body;
+}
+
+function loadFromHash() {
+  const m = /[#&]urls=([^&]+)/.exec(location.hash);
+  if (!m) return false;
+  let decoded;
+  try { decoded = decodeURIComponent(m[1]); } catch (_) { return false; }
+  const urls = extractFromManualInput(decoded);
+  if (!urls.length) return false;
+  setStatus('success', `Received ${urls.length} photo${urls.length === 1 ? '' : 's'} from the bookmarklet.`);
+  startSlideshowWith(urls);
+  return true;
 }
 
 // ---------- Event wiring ----------
@@ -327,3 +358,15 @@ stage.addEventListener('touchend', (e) => {
   if (Math.abs(delta) < 40) return;
   delta < 0 ? next() : prev();
 }, { passive: true });
+
+// ---------- Init ----------
+bookmarkletEl.href = buildBookmarkletHref();
+bookmarkletEl.addEventListener('click', (e) => {
+  // Clicking the button on this page does nothing useful — it only works when
+  // triggered from the album page after being dragged to the bookmarks bar.
+  e.preventDefault();
+  setStatus('info', 'Drag this button to your bookmarks bar, then click it while viewing a public Google Photos album.');
+});
+
+loadFromHash();
+window.addEventListener('hashchange', loadFromHash);

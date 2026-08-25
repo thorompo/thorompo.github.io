@@ -10,7 +10,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="gplay.css?v=2">
+  <link rel="stylesheet" href="gplay.css?v=3">
 </head>
 <body class="flex flex-col items-center min-h-screen p-6">
 
@@ -52,6 +52,18 @@
       <button id="loadBtn">&gt; Load slideshow</button>
       <div id="statusMsg" class="hidden"></div>
 
+      <div class="bookmarklet-block">
+        <p class="text-sm text-gray-500 mb-3">
+          // <strong>One-click auto-fetch:</strong> drag the button below to your bookmarks bar
+          <em>(once)</em>. Then open any public Google Photos album and click the bookmark —
+          GPlay opens in a new tab with all photos preloaded, no copy-paste.
+        </p>
+        <a id="bookmarklet" class="bookmarklet-btn" href="#" draggable="true"
+           title="Drag me to your bookmarks bar">
+          ⇱ GPlay from this page
+        </a>
+      </div>
+
       <details id="manualDetails" class="manual-block">
         <summary>Auto-fetch blocked? Paste HTML or image URLs manually</summary>
         <p class="text-sm text-gray-500 mt-3 mb-3">
@@ -88,6 +100,6 @@
     <p><a href="./index.html" class="hover:text-sky-400">← back to home</a> &nbsp;·&nbsp; © 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="gplay.js?v=2" defer></script>
+  <script src="gplay.js?v=3" defer></script>
 </body>
 </html>
