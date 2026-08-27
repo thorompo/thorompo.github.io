@@ -468,7 +468,7 @@ async function probeAlbumMaxDims() {
     if (state.recStopRequested) break;
     setStatus('info', `Probing image sizes ${i + 1} / ${total}...`);
     try {
-      const img = await loadCorsImage(toHqUrl(state.urls[i], 's0'));
+      const img = await loadHqImage(state.urls[i], 's0');
       if (img.naturalWidth > maxW)  maxW = img.naturalWidth;
       if (img.naturalHeight > maxH) maxH = img.naturalHeight;
     } catch (_) { /* skip failures */ }
@@ -477,13 +477,48 @@ async function probeAlbumMaxDims() {
 }
 
 function loadCorsImage(url) {
+  // Two attempts — lh3.googleusercontent.com occasionally answers with a
+  // response that lacks CORS headers when hitting a fresh edge cache; a retry
+  // usually reaches a different edge and succeeds.
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Failed to load ${url}`));
-    img.src = url;
+    let attempts = 0;
+    const maxAttempts = 2;
+    function attempt() {
+      attempts++;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        if (attempts < maxAttempts) setTimeout(attempt, 150 * attempts);
+        else reject(new Error(`Failed to load ${url}`));
+      };
+      img.src = url;
+    }
+    attempt();
   });
+}
+
+// Ordered from largest to smallest. Used to build a per-request fallback chain
+// starting at the preset's preferred size and degrading if the CDN rejects it.
+const HQ_SIZE_ORDER = ['s0', 'w7680-h7680', 'w3840-h3840', 'w2560-h2560', 'w1920-h1920', 'w1280-h1280'];
+
+function sizeCandidatesFor(preferredSize) {
+  const idx = HQ_SIZE_ORDER.indexOf(preferredSize);
+  if (idx === -1) return [preferredSize, ...HQ_SIZE_ORDER];
+  return HQ_SIZE_ORDER.slice(idx);
+}
+
+async function loadHqImage(url, preferredSize) {
+  const base = url.split('=')[0];
+  const tried = [];
+  for (const size of sizeCandidatesFor(preferredSize)) {
+    try {
+      return await loadCorsImage(`${base}=${size}`);
+    } catch (_) {
+      tried.push(size);
+    }
+  }
+  throw new Error(`All HQ sizes failed (tried: ${tried.join(', ')})`);
 }
 
 function drawContain(ctx, img, w, h) {
@@ -680,7 +715,7 @@ async function recordSlideshow() {
   // Probe the first image at HQ so a failure fails fast, before we start recording.
   let firstImg;
   try {
-    firstImg = await loadCorsImage(toHqUrl(state.urls[0], hqSize));
+    firstImg = await loadHqImage(state.urls[0], hqSize);
   } catch (err) {
     setRecUI(false);
     setStatus('error', `Could not load the first photo in HQ: ${err.message}`);
@@ -718,7 +753,7 @@ async function recordSlideshow() {
     updateRecProgress(1, total);
     let currentImg = firstImg;
     // Preload the next image while the current one is on screen.
-    let nextPromise = total > 1 ? loadCorsImage(toHqUrl(state.urls[1], hqSize)).catch(() => null) : null;
+    let nextPromise = total > 1 ? loadHqImage(state.urls[1], hqSize).catch(() => null) : null;
 
     // Intro / outro always fade to keep them cinematic regardless of style.
     await transitionFrame('fade', ctx, null, currentImg, RW, RH, fadeMs);
@@ -728,7 +763,7 @@ async function recordSlideshow() {
       updateRecProgress(i + 1, total);
       const nextImg = await nextPromise;
       nextPromise = i + 1 < total
-        ? loadCorsImage(toHqUrl(state.urls[i + 1], hqSize)).catch(() => null)
+        ? loadHqImage(state.urls[i + 1], hqSize).catch(() => null)
         : null;
       if (!nextImg) { failures.push(state.urls[i]); continue; }
       await transitionFrame(state.transition, ctx, currentImg, nextImg, RW, RH, fadeMs);
