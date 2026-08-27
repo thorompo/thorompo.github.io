@@ -27,7 +27,6 @@ const intervalInput = document.getElementById('intervalInput');
 const transitionSelect = document.getElementById('transitionSelect');
 const autoplayInput = document.getElementById('autoplayInput');
 const loopInput = document.getElementById('loopInput');
-const recQualitySelect = document.getElementById('recQualitySelect');
 const loadBtn = document.getElementById('loadBtn');
 const statusMsg = document.getElementById('statusMsg');
 
@@ -430,16 +429,13 @@ function loadFromHash() {
 }
 
 // ---------- Recording ----------
-// Recording quality presets: canvas dimensions + HQ source size hint sent to
-// Google Photos (`=wW-hH`). The HQ hint is chosen a bit larger than the canvas
-// so we downsample rather than upscale on the encoder canvas.
-const REC_QUALITIES = {
-  720:  { w: 1280, h: 720,  hqSize: 'w1920-h1920', label: '720p'  },
-  1080: { w: 1920, h: 1080, hqSize: 'w2560-h2560', label: '1080p' },
-  1440: { w: 2560, h: 1440, hqSize: 'w3200-h3200', label: '1440p' },
-  2160: { w: 3840, h: 2160, hqSize: 'w3840-h3840', label: '4K'    },
-  4320: { w: 7680, h: 4320, hqSize: 'w7680-h7680', label: '8K'    },
-};
+// Fixed 4K UHD output. Google Photos is asked for the image at a hint slightly
+// larger than the canvas so the encoder downsamples (sharper) instead of
+// upscaling. If the direct URL is blocked by CORS, the loader transparently
+// falls back to a proxy → blob → objectURL pipeline in `loadCorsImage`.
+const REC_WIDTH = 3840;
+const REC_HEIGHT = 2160;
+const REC_HQ_SIZE = 'w3840-h3840';
 const REC_FPS = 30;
 // Bits per pixel per frame — ~0.15 gives visually near-lossless VP9 quality.
 const REC_BPP = 0.15;
@@ -449,31 +445,9 @@ const REC_MIME_CANDIDATES = [
   'video/webm',
 ];
 
-function currentRecQuality() {
-  const q = parseInt(recQualitySelect.value, 10);
-  return REC_QUALITIES[q] || REC_QUALITIES[2160];
-}
-
-function toHqUrl(url, hqSize) {
+function toHqUrl(url) {
   const base = url.split('=')[0];
-  return `${base}=${hqSize}`;
-}
-
-// Probes every image at native resolution (=s0) to find the largest width and
-// height across the album (independent axes). Used by the "Original" preset.
-async function probeAlbumMaxDims() {
-  let maxW = 0, maxH = 0;
-  const total = state.urls.length;
-  for (let i = 0; i < total; i++) {
-    if (state.recStopRequested) break;
-    setStatus('info', `Probing image sizes ${i + 1} / ${total}...`);
-    try {
-      const img = await loadHqImage(state.urls[i], 's0');
-      if (img.naturalWidth > maxW)  maxW = img.naturalWidth;
-      if (img.naturalHeight > maxH) maxH = img.naturalHeight;
-    } catch (_) { /* skip failures */ }
-  }
-  return { w: maxW, h: maxH };
+  return `${base}=${REC_HQ_SIZE}`;
 }
 
 // Public proxies used when Google Photos serves an image without CORS headers.
@@ -485,6 +459,8 @@ const IMAGE_PROXIES = [
   (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
 ];
 
+const blobUrlsToRevoke = [];
+
 function loadCorsImageDirect(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -495,35 +471,55 @@ function loadCorsImageDirect(url) {
   });
 }
 
-async function loadCorsImage(url) {
-  // Two direct attempts — handles transient edge-cache CORS misses.
-  try { return await loadCorsImageDirect(url); } catch (_) { /* retry */ }
-  await new Promise((r) => setTimeout(r, 150));
-  try { return await loadCorsImageDirect(url); } catch (_) { /* fall to proxies */ }
-
-  // Proxy chain — works even when Google refuses CORS entirely.
+// Fetches the image bytes via a CORS proxy and turns them into a blob URL.
+// Blob URLs are same-origin, so the canvas can safely draw them regardless of
+// what Google's original response looked like.
+async function loadImageViaProxy(originalUrl) {
+  const errors = [];
   for (const buildProxy of IMAGE_PROXIES) {
+    const proxyUrl = buildProxy(originalUrl);
+    let host = 'proxy';
+    try { host = new URL(proxyUrl).host; } catch (_) {}
     try {
-      return await loadCorsImageDirect(buildProxy(url));
-    } catch (_) { /* try next proxy */ }
+      const res = await fetch(proxyUrl, { redirect: 'follow' });
+      if (!res.ok) { errors.push(`${host}:${res.status}`); continue; }
+      const blob = await res.blob();
+      if (blob.size < 100) { errors.push(`${host}:empty`); continue; }
+      const objectUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('img decode'));
+        el.src = objectUrl;
+      });
+      blobUrlsToRevoke.push(objectUrl);
+      return img;
+    } catch (e) {
+      errors.push(`${host}:${e.message}`);
+    }
   }
-  throw new Error(`Failed to load ${url}`);
+  throw new Error(`Proxy chain failed (${errors.join(' | ')})`);
 }
 
-// Ordered from largest to smallest. Used to build a per-request fallback chain
-// starting at the preset's preferred size and degrading if the CDN rejects it.
-const HQ_SIZE_ORDER = ['s0', 'w7680-h7680', 'w3840-h3840', 'w2560-h2560', 'w1920-h1920', 'w1280-h1280'];
-
-function sizeCandidatesFor(preferredSize) {
-  const idx = HQ_SIZE_ORDER.indexOf(preferredSize);
-  if (idx === -1) return [preferredSize, ...HQ_SIZE_ORDER];
-  return HQ_SIZE_ORDER.slice(idx);
+async function loadCorsImage(url) {
+  // Direct CORS fetch is fastest when Google plays nice.
+  try { return await loadCorsImageDirect(url); } catch (_) { /* fall through */ }
+  return await loadImageViaProxy(url);
 }
 
-async function loadHqImage(url, preferredSize) {
+function revokeBlobUrls() {
+  while (blobUrlsToRevoke.length) URL.revokeObjectURL(blobUrlsToRevoke.pop());
+}
+
+// Ordered from largest to smallest. Used as size fallback if the preferred HQ
+// size can't be loaded (Google occasionally refuses specific sizes even via
+// proxy).
+const HQ_SIZE_ORDER = ['w3840-h3840', 'w2560-h2560', 'w1920-h1920', 'w1280-h1280'];
+
+async function loadHqImage(url) {
   const base = url.split('=')[0];
   const tried = [];
-  for (const size of sizeCandidatesFor(preferredSize)) {
+  for (const size of HQ_SIZE_ORDER) {
     try {
       return await loadCorsImage(`${base}=${size}`);
     } catch (_) {
@@ -693,41 +689,12 @@ async function recordSlideshow() {
   state.recStopRequested = false;
   setRecUI(true);
   clearStatus();
-
-  let RW, RH, hqSize, label;
-  if (recQualitySelect.value === 'original') {
-    setStatus('info', 'Probing album for native resolution — this loads every photo at =s0 and may take a while...');
-    hqSize = 's0';
-    const dims = await probeAlbumMaxDims();
-    if (state.recStopRequested) {
-      setRecUI(false);
-      setStatus('info', 'Probing cancelled.');
-      if (wasPlaying) play();
-      return;
-    }
-    if (!dims.w || !dims.h) {
-      setRecUI(false);
-      setStatus('error', 'Could not determine album native resolution (CORS or load failure).');
-      if (wasPlaying) play();
-      return;
-    }
-    RW = Math.max(2, Math.round(dims.w / 2) * 2);
-    RH = Math.max(2, Math.round(dims.h / 2) * 2);
-    label = `original-${RW}x${RH}`;
-    setStatus('info', `Native resolution: ${RW}×${RH}. Preparing recording...`);
-  } else {
-    const quality = currentRecQuality();
-    RW = quality.w;
-    RH = quality.h;
-    hqSize = quality.hqSize;
-    label = quality.label;
-    setStatus('info', `Preparing ${quality.label} recording...`);
-  }
+  setStatus('info', 'Preparing 4K recording...');
 
   // Probe the first image at HQ so a failure fails fast, before we start recording.
   let firstImg;
   try {
-    firstImg = await loadHqImage(state.urls[0], hqSize);
+    firstImg = await loadHqImage(state.urls[0]);
   } catch (err) {
     setRecUI(false);
     setStatus('error', `Could not load the first photo in HQ: ${err.message}`);
@@ -736,16 +703,16 @@ async function recordSlideshow() {
   }
 
   const canvas = document.createElement('canvas');
-  canvas.width = RW;
-  canvas.height = RH;
+  canvas.width = REC_WIDTH;
+  canvas.height = REC_HEIGHT;
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, RW, RH);
+  ctx.fillRect(0, 0, REC_WIDTH, REC_HEIGHT);
 
   const stream = canvas.captureStream(REC_FPS);
-  const bitrate = Math.round(RW * RH * REC_FPS * REC_BPP);
+  const bitrate = Math.round(REC_WIDTH * REC_HEIGHT * REC_FPS * REC_BPP);
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: bitrate });
   const chunks = [];
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
@@ -765,25 +732,25 @@ async function recordSlideshow() {
     updateRecProgress(1, total);
     let currentImg = firstImg;
     // Preload the next image while the current one is on screen.
-    let nextPromise = total > 1 ? loadHqImage(state.urls[1], hqSize).catch(() => null) : null;
+    let nextPromise = total > 1 ? loadHqImage(state.urls[1]).catch(() => null) : null;
 
     // Intro / outro always fade to keep them cinematic regardless of style.
-    await transitionFrame('fade', ctx, null, currentImg, RW, RH, fadeMs);
+    await transitionFrame('fade', ctx, null, currentImg, REC_WIDTH, REC_HEIGHT, fadeMs);
     await holdFrames(holdMs);
 
     for (let i = 1; i < total && !state.recStopRequested; i++) {
       updateRecProgress(i + 1, total);
       const nextImg = await nextPromise;
       nextPromise = i + 1 < total
-        ? loadHqImage(state.urls[i + 1], hqSize).catch(() => null)
+        ? loadHqImage(state.urls[i + 1]).catch(() => null)
         : null;
       if (!nextImg) { failures.push(state.urls[i]); continue; }
-      await transitionFrame(state.transition, ctx, currentImg, nextImg, RW, RH, fadeMs);
+      await transitionFrame(state.transition, ctx, currentImg, nextImg, REC_WIDTH, REC_HEIGHT, fadeMs);
       currentImg = nextImg;
       if (!state.recStopRequested) await holdFrames(holdMs);
     }
 
-    await transitionFrame('fade', ctx, currentImg, null, RW, RH, fadeMs);
+    await transitionFrame('fade', ctx, currentImg, null, REC_WIDTH, REC_HEIGHT, fadeMs);
   } catch (err) {
     console.error(err);
     setStatus('error', `Recording failed: ${err.message}`);
@@ -791,17 +758,18 @@ async function recordSlideshow() {
     if (recorder.state !== 'inactive') recorder.stop();
     await stopped;
     setRecUI(false);
+    revokeBlobUrls();
   }
 
   if (chunks.length === 0) {
-    setStatus('error', 'Recording produced no data. This can happen if the images blocked CORS.');
+    setStatus('error', 'Recording produced no data.');
     if (wasPlaying) play();
     return;
   }
 
   const blob = new Blob(chunks, { type: mimeType });
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const filename = `gplay-slideshow-${label.toLowerCase()}-${stamp}.webm`;
+  const filename = `gplay-slideshow-4k-${stamp}.webm`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -816,7 +784,7 @@ async function recordSlideshow() {
   const stoppedEarly = state.recStopRequested ? ' (stopped early)' : '';
   const skipped = failures.length ? ` — ${failures.length} image(s) skipped` : '';
   setStatus('success',
-    `Video ready: ${filename} · ${RW}×${RH} @ ${mbps} Mbps · ${sizeMb} MB${stoppedEarly}${skipped}`);
+    `Video ready: ${filename} · ${REC_WIDTH}×${REC_HEIGHT} @ ${mbps} Mbps · ${sizeMb} MB${stoppedEarly}${skipped}`);
 
   if (wasPlaying && !state.recStopRequested) play();
 }
