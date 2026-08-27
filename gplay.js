@@ -476,26 +476,38 @@ async function probeAlbumMaxDims() {
   return { w: maxW, h: maxH };
 }
 
-function loadCorsImage(url) {
-  // Two attempts — lh3.googleusercontent.com occasionally answers with a
-  // response that lacks CORS headers when hitting a fresh edge cache; a retry
-  // usually reaches a different edge and succeeds.
+// Public proxies used when Google Photos serves an image without CORS headers.
+// The proxy re-serves the response with `Access-Control-Allow-Origin: *` so the
+// canvas doesn't get tainted — required for MediaRecorder to work.
+const IMAGE_PROXIES = [
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+];
+
+function loadCorsImageDirect(url) {
   return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const maxAttempts = 2;
-    function attempt() {
-      attempts++;
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = () => {
-        if (attempts < maxAttempts) setTimeout(attempt, 150 * attempts);
-        else reject(new Error(`Failed to load ${url}`));
-      };
-      img.src = url;
-    }
-    attempt();
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load ${url}`));
+    img.src = url;
   });
+}
+
+async function loadCorsImage(url) {
+  // Two direct attempts — handles transient edge-cache CORS misses.
+  try { return await loadCorsImageDirect(url); } catch (_) { /* retry */ }
+  await new Promise((r) => setTimeout(r, 150));
+  try { return await loadCorsImageDirect(url); } catch (_) { /* fall to proxies */ }
+
+  // Proxy chain — works even when Google refuses CORS entirely.
+  for (const buildProxy of IMAGE_PROXIES) {
+    try {
+      return await loadCorsImageDirect(buildProxy(url));
+    } catch (_) { /* try next proxy */ }
+  }
+  throw new Error(`Failed to load ${url}`);
 }
 
 // Ordered from largest to smallest. Used to build a per-request fallback chain
