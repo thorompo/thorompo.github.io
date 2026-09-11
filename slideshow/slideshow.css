@@ -199,6 +199,7 @@
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
 }
 #totalDuration { width: 8rem; min-width: 0; text-align: center; }
+#videoDuration { width: 7rem; min-width: 0; text-align: center; }
 
 /* Loop toggle */
 .loop-toggle {
@@ -358,13 +359,23 @@
 .t-none    .slide-layer                 { transition: none; }
 
 #playerHud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(13,17,23,0.9);
-  border-top: 1px solid #1f2937;
+  background: linear-gradient(180deg, rgba(13,17,23,0) 0%, rgba(13,17,23,0.85) 55%);
+  transition: opacity 0.25s ease;
+  z-index: 3;
 }
+#player.hud-hidden #playerHud {
+  opacity: 0;
+  pointer-events: none;
+}
+#player.hud-hidden { cursor: none; }
 .hud-btn {
   background: transparent;
   color: #e5e7eb;

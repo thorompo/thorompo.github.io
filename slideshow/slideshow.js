@@ -135,6 +135,7 @@
     playBtn: document.getElementById('playBtn'),
     transitionSelect: document.getElementById('transitionSelect'),
     totalDuration: document.getElementById('totalDuration'),
+    videoDuration: document.getElementById('videoDuration'),
     loopCheckbox: document.getElementById('loopCheckbox'),
     perSlideInfo: document.getElementById('perSlideInfo'),
     grid: document.getElementById('grid'),
@@ -159,11 +160,63 @@
     els.statusBar.style.color = isError ? '#f87171' : '#94a3b8';
   }
 
-  function updatePerSlideInfo() {
-    const total = Math.max(1, parseInt(els.totalDuration.value, 10) || 0);
+  // Auto-default the Video length input to `total / N` until the user
+  // manually sets it. After that, changing Video length nudges Total.
+  let userSetVideoLength = false;
+  let lastKnownVideoLength = 0;
+
+  function formatDur(v) {
+    const n = Math.round(v * 100) / 100;
+    return String(n);
+  }
+
+  function syncDefaultVideoLength() {
+    if (userSetVideoLength) return;
+    const total = parseInt(els.totalDuration.value, 10) || 0;
     const n = state.slides.length;
+    if (n === 0 || total <= 0) { lastKnownVideoLength = parseFloat(els.videoDuration.value) || 0; return; }
+    const videoCount = state.slides.filter(s => s.type === 'video').length;
+    const auto = videoCount === 0 ? 0 : total / n;
+    els.videoDuration.value = formatDur(auto);
+    lastKnownVideoLength = auto;
+  }
+
+  function computeSlideDurations() {
+    const total = Math.max(1, parseInt(els.totalDuration.value, 10) || 0);
+    const videoDur = Math.max(0, parseFloat(els.videoDuration.value) || 0);
+    const slides = state.slides;
+    if (slides.length === 0) return [];
+    const videoCount = slides.filter(s => s.type === 'video').length;
+    const imageCount = slides.length - videoCount;
+
+    if (videoDur > 0 && videoCount > 0) {
+      const videoTotal = videoCount * videoDur;
+      const remainingForImages = Math.max(0, total - videoTotal);
+      const imgDur = imageCount > 0 ? remainingForImages / imageCount : 0;
+      return slides.map(s => (s.type === 'video' ? videoDur : imgDur) * 1000);
+    }
+    const per = (total / slides.length) * 1000;
+    return slides.map(() => per);
+  }
+
+  function updatePerSlideInfo() {
+    syncDefaultVideoLength();
+    const total = Math.max(1, parseInt(els.totalDuration.value, 10) || 0);
+    const videoDur = Math.max(0, parseFloat(els.videoDuration.value) || 0);
+    const n = state.slides.length;
+    const videoCount = state.slides.filter(s => s.type === 'video').length;
+    const imageCount = n - videoCount;
     if (n === 0) {
       els.perSlideInfo.textContent = '';
+    } else if (videoDur > 0 && videoCount > 0) {
+      const remaining = Math.max(0, total - videoCount * videoDur);
+      const imgPer = imageCount > 0 ? remaining / imageCount : 0;
+      if (imageCount > 0) {
+        els.perSlideInfo.textContent =
+          `≈ ${imgPer.toFixed(2)}s / image · ${videoDur.toFixed(2)}s / video (${imageCount} img, ${videoCount} vid)`;
+      } else {
+        els.perSlideInfo.textContent = `≈ ${videoDur.toFixed(2)}s / video (${videoCount})`;
+      }
     } else {
       const per = (total / n).toFixed(2);
       els.perSlideInfo.textContent = `= ${per}s per slide (${n})`;
@@ -370,6 +423,7 @@
       generatedAt: new Date().toISOString(),
       transition: els.transitionSelect.value,
       totalDurationSeconds: parseInt(els.totalDuration.value, 10) || 30,
+      videoDurationSeconds: Math.max(0, parseFloat(els.videoDuration.value) || 0),
       files: state.slides.map(s => s.name),
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -407,6 +461,11 @@
     if (typeof config.totalDurationSeconds === 'number' && config.totalDurationSeconds > 0) {
       els.totalDuration.value = String(config.totalDurationSeconds);
     }
+    if (typeof config.videoDurationSeconds === 'number' && config.videoDurationSeconds >= 0) {
+      els.videoDuration.value = String(config.videoDurationSeconds);
+      lastKnownVideoLength = config.videoDurationSeconds;
+      userSetVideoLength = true;
+    }
 
     // Match by filename against currently loaded slides
     const byName = new Map();
@@ -437,6 +496,7 @@
     dbUpdateOrder(state.slides.map(s => s.id)).catch(err => console.warn('Persist order failed:', err));
     dbSetSetting('transition', els.transitionSelect.value).catch(() => {});
     dbSetSetting('totalDuration', parseInt(els.totalDuration.value, 10) || 30).catch(() => {});
+    dbSetSetting('videoDuration', Math.max(0, parseFloat(els.videoDuration.value) || 0)).catch(() => {});
 
     if (missing.length > 0) {
       const list = missing.join(', ');
@@ -493,6 +553,7 @@
         settings: {
           transition: els.transitionSelect.value,
           totalDuration: parseInt(els.totalDuration.value, 10) || 30,
+          videoDuration: Math.max(0, parseFloat(els.videoDuration.value) || 0),
           loop: !!els.loopCheckbox.checked,
         },
         files: manifestFiles,
@@ -577,6 +638,12 @@
       if (typeof s.totalDuration === 'number' && s.totalDuration > 0) {
         els.totalDuration.value = String(s.totalDuration);
         dbSetSetting('totalDuration', s.totalDuration).catch(() => {});
+      }
+      if (typeof s.videoDuration === 'number' && s.videoDuration >= 0) {
+        els.videoDuration.value = String(s.videoDuration);
+        lastKnownVideoLength = s.videoDuration;
+        userSetVideoLength = true;
+        dbSetSetting('videoDuration', s.videoDuration).catch(() => {});
       }
       if (typeof s.loop === 'boolean') {
         els.loopCheckbox.checked = s.loop;
@@ -775,10 +842,21 @@
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
-      const totalMs = Math.max(1000, (parseInt(els.totalDuration.value, 10) || 30) * 1000);
-      const perSlideMs = totalMs / prepared.length;
+      const perSlideDurations = computeSlideDurations();
+      const totalMs = perSlideDurations.reduce((a, b) => a + b, 0) || 1000;
+      const cumulative = [0];
+      for (let i = 0; i < perSlideDurations.length - 1; i++) {
+        cumulative.push(cumulative[i] + perSlideDurations[i]);
+      }
+      const minSlide = Math.min(...perSlideDurations);
       const transitionName = els.transitionSelect.value;
-      const transitionMs = transitionName === 'none' ? 0 : Math.min(600, Math.max(150, perSlideMs * 0.2));
+      const transitionMs = transitionName === 'none' ? 0 : Math.min(600, Math.max(150, minSlide * 0.2));
+
+      const slideAtTime = (t) => {
+        let idx = 0;
+        while (idx < perSlideDurations.length - 1 && t >= cumulative[idx + 1]) idx++;
+        return { idx, inSlide: t - cumulative[idx], dur: perSlideDurations[idx] };
+      };
 
       // Start first video slide (if any) — fire-and-forget so a hanging
       // play() promise (e.g. HEVC MOV in Chromium) doesn't stall the loop.
@@ -814,9 +892,8 @@
           const elapsed = now - startTime;
           if (elapsed >= totalMs) { resolve(); return; }
 
-          const rawIdx = Math.min(prepared.length - 1, Math.floor(elapsed / perSlideMs));
-          const inSlide = elapsed - rawIdx * perSlideMs;
-          const transStart = perSlideMs - transitionMs;
+          const { idx: rawIdx, inSlide, dur: slideDur } = slideAtTime(elapsed);
+          const transStart = slideDur - transitionMs;
           const isTransitioning = transitionMs > 0 && rawIdx < prepared.length - 1 && inSlide >= transStart;
 
           if (rawIdx !== currentIdx) {
@@ -892,14 +969,16 @@
     timerId: null,
     paused: false,
     loop: false,
-    perSlideMs: 3000,
+    perSlideMsList: [],
+    transitionMs: 500,
     activeLayer: 'A',
     currentVideo: null,
 
     open() {
       if (state.slides.length === 0) return;
-      const total = Math.max(1, parseInt(els.totalDuration.value, 10) || 0);
-      this.perSlideMs = Math.max(500, (total / state.slides.length) * 1000);
+      this.perSlideMsList = computeSlideDurations().map(ms => Math.max(300, ms));
+      const minSlide = Math.min(...this.perSlideMsList);
+      this.transitionMs = Math.min(600, Math.max(150, minSlide * 0.2));
       this.loop = !!els.loopCheckbox.checked;
       this.idx = 0;
       this.paused = false;
@@ -1000,7 +1079,8 @@
     scheduleNext() {
       this.clearTimer();
       if (this.paused) return;
-      this.timerId = setTimeout(() => this.advance(), this.perSlideMs);
+      const dur = this.perSlideMsList[this.idx] || 3000;
+      this.timerId = setTimeout(() => this.advance(), dur);
     },
 
     advance() {
@@ -1127,6 +1207,24 @@
     const v = parseInt(els.totalDuration.value, 10);
     if (v > 0) dbSetSetting('totalDuration', v).catch(() => {});
   });
+  els.videoDuration.addEventListener('input', () => {
+    const newVal = Math.max(0, parseFloat(els.videoDuration.value) || 0);
+    const oldVal = lastKnownVideoLength;
+    const videoCount = state.slides.filter(s => s.type === 'video').length;
+    userSetVideoLength = true;
+    if (videoCount > 0) {
+      const oldTotal = parseInt(els.totalDuration.value, 10) || 0;
+      const delta = newVal - oldVal;
+      const newTotal = Math.max(1, Math.round(oldTotal + delta * videoCount));
+      if (newTotal !== oldTotal) {
+        els.totalDuration.value = String(newTotal);
+        dbSetSetting('totalDuration', newTotal).catch(() => {});
+      }
+    }
+    lastKnownVideoLength = newVal;
+    updatePerSlideInfo();
+    dbSetSetting('videoDuration', newVal).catch(() => {});
+  });
   els.transitionSelect.addEventListener('change', () => {
     dbSetSetting('transition', els.transitionSelect.value).catch(() => {});
   });
@@ -1152,6 +1250,30 @@
   els.nextBtn.addEventListener('click', () => player.next());
   els.prevBtn.addEventListener('click', () => player.prev());
   els.pauseBtn.addEventListener('click', () => player.togglePause());
+
+  // Auto-hide the player HUD while in fullscreen; reveal briefly on activity.
+  let hudHideTimer = null;
+  function scheduleHudHide() {
+    clearTimeout(hudHideTimer);
+    if (document.fullscreenElement) {
+      hudHideTimer = setTimeout(() => els.player.classList.add('hud-hidden'), 2500);
+    }
+  }
+  function revealHud() {
+    els.player.classList.remove('hud-hidden');
+    scheduleHudHide();
+  }
+  els.player.addEventListener('mousemove', revealHud);
+  els.player.addEventListener('touchstart', revealHud, { passive: true });
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+      els.player.classList.add('hud-hidden');
+      scheduleHudHide();
+    } else {
+      clearTimeout(hudHideTimer);
+      els.player.classList.remove('hud-hidden');
+    }
+  });
 
   // Drag-and-drop files onto the page
   ['dragenter', 'dragover'].forEach(evt => {
@@ -1181,6 +1303,11 @@
       }
       if (typeof settings.totalDuration === 'number' && settings.totalDuration > 0) {
         els.totalDuration.value = String(settings.totalDuration);
+      }
+      if (typeof settings.videoDuration === 'number' && settings.videoDuration >= 0) {
+        els.videoDuration.value = String(settings.videoDuration);
+        lastKnownVideoLength = settings.videoDuration;
+        userSetVideoLength = true;
       }
       if (typeof settings.loop === 'boolean') {
         els.loopCheckbox.checked = settings.loop;

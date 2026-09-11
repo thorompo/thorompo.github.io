@@ -13,7 +13,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="slideshow.css?v=8">
+  <link rel="stylesheet" href="slideshow.css?v=10">
 </head>
 <body class="flex flex-col items-center min-h-screen p-4 sm:p-6">
 
@@ -81,9 +81,13 @@
         </div>
 
         <div class="tb-duration-row">
-          <label class="ctrl ctrl-wide">
+          <label class="ctrl">
             <span class="ctrl-label">Total duration (s)</span>
             <input id="totalDuration" class="ctrl-input" type="number" min="1" step="1" value="30">
+          </label>
+          <label class="ctrl" title="Fixed playback time for each video slide. 0 = share time equally with images.">
+            <span class="ctrl-label">Video length (s)</span>
+            <input id="videoDuration" class="ctrl-input" type="number" min="0" step="0.5" value="0">
           </label>
           <span id="perSlideInfo" class="per-slide-info"></span>
         </div>
@@ -140,6 +144,6 @@
     <p>© 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="slideshow.js?v=9" defer></script>
+  <script src="slideshow.js?v=12" defer></script>
 </body>
 </html>
