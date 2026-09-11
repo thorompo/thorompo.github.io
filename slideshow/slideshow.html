@@ -7,12 +7,13 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="slideshow.css?v=2">
+  <link rel="stylesheet" href="slideshow.css?v=6">
 </head>
 <body class="flex flex-col items-center min-h-screen p-4 sm:p-6">
 
@@ -23,44 +24,70 @@
       <p class="text-gray-400 text-sm">Load photos &amp; videos &middot; drag to reorder &middot; play with transitions</p>
     </div>
 
-    <div id="toolbar" class="flex flex-wrap items-center justify-center gap-3 p-4 bg-gray-900/60 border border-gray-700 rounded-xl">
-      <button id="playBtn" class="btn btn-primary" title="Start slideshow">
-        <span>&#9654;</span>
-        <span>Play</span>
+    <div id="toolbar" class="toolbar">
+      <button id="menuBtn" class="menu-btn" aria-label="Open menu" aria-expanded="false" aria-controls="menuPanel" title="Menu">
+        <span class="menu-icon"></span>
+        <span class="menu-icon"></span>
+        <span class="menu-icon"></span>
       </button>
 
-      <label class="ctrl">
-        <span class="ctrl-label">Transition</span>
-        <select id="transitionSelect" class="ctrl-input">
-          <option value="fade">Fade</option>
-          <option value="crossfade">Crossfade</option>
-          <option value="slide-left">Slide Left</option>
-          <option value="slide-up">Slide Up</option>
-          <option value="zoom">Zoom</option>
-          <option value="none">None</option>
-        </select>
-      </label>
+      <div id="menuPanel" class="menu-panel hidden" role="menu" aria-hidden="true">
+        <div class="menu-group">
+          <span class="menu-group-label">Media</span>
+          <button id="addBtn" class="menu-item" role="menuitem">+ Add media</button>
+          <button id="clearBtn" class="menu-item menu-item-danger" role="menuitem">Clear</button>
+        </div>
+        <div class="menu-group">
+          <span class="menu-group-label">Order</span>
+          <button id="exportBtn" class="menu-item" role="menuitem">Export order</button>
+          <button id="importBtn" class="menu-item" role="menuitem">Import config</button>
+        </div>
+        <div class="menu-group">
+          <span class="menu-group-label">Slideshow (.zip)</span>
+          <button id="saveShowBtn" class="menu-item" role="menuitem">Save slideshow</button>
+          <button id="loadShowBtn" class="menu-item" role="menuitem">Load slideshow</button>
+        </div>
+      </div>
 
-      <label class="ctrl">
-        <span class="ctrl-label">Total duration (s)</span>
-        <input id="totalDuration" class="ctrl-input" type="number" min="1" step="1" value="30">
-      </label>
+      <div class="tb-center">
+        <div class="tb-primary-row">
+          <button id="playBtn" class="btn btn-primary btn-lg" title="Start slideshow">
+            <span class="btn-icon">&#9654;</span>
+            <span>Play</span>
+          </button>
 
-      <span id="perSlideInfo" class="text-xs text-gray-400"></span>
+          <label class="ctrl">
+            <span class="ctrl-label">Transition</span>
+            <select id="transitionSelect" class="ctrl-input">
+              <option value="fade">Fade</option>
+              <option value="crossfade">Crossfade</option>
+              <option value="slide-left">Slide Left</option>
+              <option value="slide-up">Slide Up</option>
+              <option value="zoom">Zoom</option>
+              <option value="none">None</option>
+            </select>
+          </label>
 
-      <div class="flex-1"></div>
+          <label class="loop-toggle" title="Repeat slideshow after the last slide">
+            <input id="loopCheckbox" type="checkbox">
+            <span>Loop</span>
+          </label>
+        </div>
 
-      <button id="addBtn" class="btn btn-ghost" title="Add photos or videos">
-        <span>+ Add media</span>
-      </button>
-      <button id="clearBtn" class="btn btn-ghost" title="Clear all">Clear</button>
-      <button id="exportBtn" class="btn btn-ghost" title="Export order to file">Export order</button>
-      <button id="importBtn" class="btn btn-ghost" title="Import saved config">Import config</button>
+        <div class="tb-duration-row">
+          <label class="ctrl ctrl-wide">
+            <span class="ctrl-label">Total duration (s)</span>
+            <input id="totalDuration" class="ctrl-input" type="number" min="1" step="1" value="30">
+          </label>
+          <span id="perSlideInfo" class="per-slide-info"></span>
+        </div>
+      </div>
 
       <input id="fileInput" type="file"
              accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.mov,.MOV,.mp4,.MP4,.m4v,.webm,.avi,.3gp,.mkv"
              multiple hidden>
       <input id="configInput" type="file" accept="application/json,.json" hidden>
+      <input id="showInput" type="file" accept=".zip,application/zip" hidden>
     </div>
 
     <div id="statusBar" class="mt-3 text-xs text-gray-400 text-center min-h-[1rem]"></div>
@@ -96,6 +123,6 @@
     <p>© 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="slideshow.js?v=1" defer></script>
+  <script src="slideshow.js?v=4" defer></script>
 </body>
 </html>

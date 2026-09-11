@@ -6,20 +6,130 @@
   const IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|avif|heic|heif)$/i;
 
   const state = {
-    slides: [], // { id, name, type, url, revoke, natW, natH }
-    nextId: 1,
+    slides: [], // { id, name, type, url, revoke }
   };
+
+  // ---------- IndexedDB persistence ----------
+  const DB_NAME = 'slideshow-maker';
+  const DB_VERSION = 1;
+  const STORE_SLIDES = 'slides';
+  const STORE_SETTINGS = 'settings';
+  let dbPromise = null;
+
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) { reject(new Error('IndexedDB not supported')); return; }
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_SLIDES)) {
+          const store = db.createObjectStore(STORE_SLIDES, { keyPath: 'id', autoIncrement: true });
+          store.createIndex('order', 'order', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+          db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+
+  function txPromise(tx) {
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
+
+  async function dbAddSlide(record) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SLIDES, 'readwrite');
+      const req = tx.objectStore(STORE_SLIDES).add(record);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function dbGetAllSlides() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SLIDES, 'readonly');
+      const req = tx.objectStore(STORE_SLIDES).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function dbDeleteSlide(id) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SLIDES, 'readwrite');
+    tx.objectStore(STORE_SLIDES).delete(id);
+    return txPromise(tx);
+  }
+
+  async function dbClearSlides() {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SLIDES, 'readwrite');
+    tx.objectStore(STORE_SLIDES).clear();
+    return txPromise(tx);
+  }
+
+  async function dbUpdateOrder(idsInOrder) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SLIDES, 'readwrite');
+    const store = tx.objectStore(STORE_SLIDES);
+    idsInOrder.forEach((id, i) => {
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const rec = getReq.result;
+        if (rec) { rec.order = i; store.put(rec); }
+      };
+    });
+    return txPromise(tx);
+  }
+
+  async function dbSetSetting(key, value) {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SETTINGS, 'readwrite');
+    tx.objectStore(STORE_SETTINGS).put({ key, value });
+    return txPromise(tx);
+  }
+
+  async function dbGetAllSettings() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SETTINGS, 'readonly');
+      const req = tx.objectStore(STORE_SETTINGS).getAll();
+      req.onsuccess = () => {
+        const out = {};
+        (req.result || []).forEach(r => { out[r.key] = r.value; });
+        resolve(out);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
 
   const els = {
     fileInput: document.getElementById('fileInput'),
     configInput: document.getElementById('configInput'),
+    showInput: document.getElementById('showInput'),
+    menuBtn: document.getElementById('menuBtn'),
+    menuPanel: document.getElementById('menuPanel'),
     addBtn: document.getElementById('addBtn'),
     clearBtn: document.getElementById('clearBtn'),
     exportBtn: document.getElementById('exportBtn'),
     importBtn: document.getElementById('importBtn'),
+    saveShowBtn: document.getElementById('saveShowBtn'),
+    loadShowBtn: document.getElementById('loadShowBtn'),
     playBtn: document.getElementById('playBtn'),
     transitionSelect: document.getElementById('transitionSelect'),
     totalDuration: document.getElementById('totalDuration'),
+    loopCheckbox: document.getElementById('loopCheckbox'),
     perSlideInfo: document.getElementById('perSlideInfo'),
     grid: document.getElementById('grid'),
     emptyState: document.getElementById('emptyState'),
@@ -64,7 +174,7 @@
     return null;
   }
 
-  async function fileToSlide(file) {
+  async function fileToBlobRecord(file) {
     const type = detectType(file);
     if (!type) throw new Error(`Unsupported file: ${file.name}`);
 
@@ -77,16 +187,20 @@
           blob = Array.isArray(converted) ? converted[0] : converted;
         } catch (e) {
           console.warn('HEIC conversion failed for', file.name, e);
-          // fallthrough — browser may still render it (Safari)
+          // fallthrough — Safari can render HEIC natively
         }
       }
     }
 
-    const url = URL.createObjectURL(blob);
+    return { name: file.name, type, blob };
+  }
+
+  function slideFromRecord(rec) {
+    const url = URL.createObjectURL(rec.blob);
     return {
-      id: state.nextId++,
-      name: file.name,
-      type,
+      id: rec.id,
+      name: rec.name,
+      type: rec.type,
       url,
       revoke: () => URL.revokeObjectURL(url),
     };
@@ -99,11 +213,20 @@
     setStatus(`Loading ${files.length} file(s)…`);
     let ok = 0, fail = 0;
     const errors = [];
+    let nextOrder = state.slides.length;
 
     for (const f of files) {
       try {
-        const slide = await fileToSlide(f);
-        state.slides.push(slide);
+        const rec = await fileToBlobRecord(f);
+        rec.order = nextOrder++;
+        try {
+          const id = await dbAddSlide(rec);
+          rec.id = id;
+        } catch (dbErr) {
+          console.warn('IndexedDB add failed, keeping in-memory only:', dbErr);
+          rec.id = -Date.now() - Math.floor(Math.random() * 1000);
+        }
+        state.slides.push(slideFromRecord(rec));
         ok++;
       } catch (e) {
         fail++;
@@ -115,7 +238,7 @@
     renderGrid();
     updatePerSlideInfo();
     if (fail === 0) {
-      setStatus(`Loaded ${ok} file(s).`);
+      setStatus(`Loaded ${ok} file(s). Saved to browser storage.`);
     } else {
       setStatus(`Loaded ${ok}, skipped ${fail}: ${errors.join(', ')}`, true);
     }
@@ -196,11 +319,11 @@
         const ids = Array.from(els.grid.children).map(el => Number(el.dataset.id));
         const byId = new Map(state.slides.map(s => [s.id, s]));
         state.slides = ids.map(id => byId.get(id)).filter(Boolean);
-        // Re-render just the indices without full rebuild
         Array.from(els.grid.children).forEach((el, i) => {
           const idx = el.querySelector('.idx');
           if (idx) idx.textContent = String(i + 1);
         });
+        dbUpdateOrder(ids).catch(err => console.warn('Persist order failed:', err));
       },
     });
   }
@@ -212,6 +335,11 @@
     state.slides.splice(i, 1);
     renderGrid();
     updatePerSlideInfo();
+    dbDeleteSlide(id).catch(err => console.warn('Persist delete failed:', err));
+    const remainingIds = state.slides.map(s => s.id);
+    if (remainingIds.length) {
+      dbUpdateOrder(remainingIds).catch(err => console.warn('Persist order failed:', err));
+    }
   }
 
   function clearAll() {
@@ -221,6 +349,7 @@
     state.slides = [];
     renderGrid();
     updatePerSlideInfo();
+    dbClearSlides().catch(err => console.warn('Persist clear failed:', err));
     setStatus('Cleared.');
   }
 
@@ -299,6 +428,9 @@
     state.slides = [...reordered, ...leftovers];
     renderGrid();
     updatePerSlideInfo();
+    dbUpdateOrder(state.slides.map(s => s.id)).catch(err => console.warn('Persist order failed:', err));
+    dbSetSetting('transition', els.transitionSelect.value).catch(() => {});
+    dbSetSetting('totalDuration', parseInt(els.totalDuration.value, 10) || 30).catch(() => {});
 
     if (missing.length > 0) {
       const list = missing.join(', ');
@@ -313,11 +445,160 @@
     }
   }
 
+  // ---------- Save / Load whole slideshow (media + settings, as .zip) ----------
+  async function saveSlideshow() {
+    if (state.slides.length === 0) {
+      setStatus('Nothing to save.', true);
+      return;
+    }
+    if (typeof window.JSZip !== 'function') {
+      setStatus('Zip library is still loading, try again in a moment.', true);
+      return;
+    }
+    els.saveShowBtn.disabled = true;
+    setStatus(`Packing ${state.slides.length} item(s) into a .zip…`);
+    try {
+      const records = await dbGetAllSlides();
+      records.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      const zip = new window.JSZip();
+      const mediaFolder = zip.folder('media');
+      const pad = Math.max(3, String(records.length).length);
+      const manifestFiles = [];
+
+      for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        if (!(r.blob instanceof Blob)) continue;
+        const seq = String(i + 1).padStart(pad, '0');
+        const safeName = r.name.replace(/[\/\\?%*:|"<>]/g, '_');
+        const storedAs = `${seq}-${safeName}`;
+        mediaFolder.file(storedAs, r.blob);
+        manifestFiles.push({
+          name: r.name,
+          type: r.type,
+          mime: r.blob.type || '',
+          storedAs,
+        });
+      }
+
+      const manifest = {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        settings: {
+          transition: els.transitionSelect.value,
+          totalDuration: parseInt(els.totalDuration.value, 10) || 30,
+          loop: !!els.loopCheckbox.checked,
+        },
+        files: manifestFiles,
+      };
+      zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+
+      // STORE: media is already compressed, skip deflate to save time.
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `slideshow-${stamp}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+
+      const mb = (blob.size / (1024 * 1024)).toFixed(1);
+      setStatus(`Saved ${manifestFiles.length} item(s) (${mb} MB).`);
+    } catch (e) {
+      console.error(e);
+      setStatus(`Save failed: ${e.message}`, true);
+    } finally {
+      els.saveShowBtn.disabled = false;
+    }
+  }
+
+  async function loadSlideshowFromFile(file) {
+    if (!file) return;
+    if (typeof window.JSZip !== 'function') {
+      setStatus('Zip library is still loading, try again in a moment.', true);
+      return;
+    }
+    if (state.slides.length > 0 &&
+        !confirm('This will replace all currently loaded media and settings. Continue?')) {
+      return;
+    }
+
+    els.loadShowBtn.disabled = true;
+    setStatus('Reading slideshow file…');
+    try {
+      const zip = await window.JSZip.loadAsync(file);
+      const manifestFile = zip.file('manifest.json');
+      if (!manifestFile) {
+        setStatus('Invalid file: manifest.json is missing.', true);
+        return;
+      }
+      const manifest = JSON.parse(await manifestFile.async('string'));
+      const files = Array.isArray(manifest.files) ? manifest.files : [];
+
+      // Wipe current state + DB
+      state.slides.forEach(s => { try { s.revoke && s.revoke(); } catch (e) { /* noop */ } });
+      state.slides = [];
+      try { await dbClearSlides(); } catch (e) { console.warn('Clear DB failed:', e); }
+
+      let order = 0;
+      let restored = 0;
+      const missing = [];
+      for (const f of files) {
+        const zf = zip.file('media/' + f.storedAs);
+        if (!zf) { missing.push(f.name || f.storedAs); continue; }
+        const rawBlob = await zf.async('blob');
+        const typed = f.mime ? new Blob([rawBlob], { type: f.mime }) : rawBlob;
+        const rec = { name: f.name, type: f.type, blob: typed, order: order++ };
+        try {
+          const id = await dbAddSlide(rec);
+          rec.id = id;
+        } catch (dbErr) {
+          console.warn('DB add failed while loading, keeping in-memory:', dbErr);
+          rec.id = -Date.now() - Math.floor(Math.random() * 1000);
+        }
+        state.slides.push(slideFromRecord(rec));
+        restored++;
+      }
+
+      const s = manifest.settings || {};
+      if (s.transition && Array.from(els.transitionSelect.options).some(o => o.value === s.transition)) {
+        els.transitionSelect.value = s.transition;
+        dbSetSetting('transition', s.transition).catch(() => {});
+      }
+      if (typeof s.totalDuration === 'number' && s.totalDuration > 0) {
+        els.totalDuration.value = String(s.totalDuration);
+        dbSetSetting('totalDuration', s.totalDuration).catch(() => {});
+      }
+      if (typeof s.loop === 'boolean') {
+        els.loopCheckbox.checked = s.loop;
+        dbSetSetting('loop', s.loop).catch(() => {});
+      }
+
+      renderGrid();
+      updatePerSlideInfo();
+
+      if (missing.length > 0) {
+        setStatus(`Loaded ${restored}. Missing in zip: ${missing.join(', ')}`, true);
+      } else {
+        setStatus(`Loaded ${restored} item(s) from slideshow file.`);
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`, true);
+    } finally {
+      els.loadShowBtn.disabled = false;
+    }
+  }
+
   // ---------- Player ----------
   const player = {
     idx: 0,
     timerId: null,
     paused: false,
+    loop: false,
     perSlideMs: 3000,
     activeLayer: 'A',
     currentVideo: null,
@@ -326,6 +607,7 @@
       if (state.slides.length === 0) return;
       const total = Math.max(1, parseInt(els.totalDuration.value, 10) || 0);
       this.perSlideMs = Math.max(500, (total / state.slides.length) * 1000);
+      this.loop = !!els.loopCheckbox.checked;
       this.idx = 0;
       this.paused = false;
       this.activeLayer = 'A';
@@ -425,17 +707,29 @@
     scheduleNext() {
       this.clearTimer();
       if (this.paused) return;
-      this.timerId = setTimeout(() => this.next(), this.perSlideMs);
+      this.timerId = setTimeout(() => this.advance(), this.perSlideMs);
+    },
+
+    advance() {
+      if (state.slides.length === 0) return;
+      const isLast = this.idx === state.slides.length - 1;
+      if (isLast && !this.loop) { this.close(); return; }
+      const nextIdx = (this.idx + 1) % state.slides.length;
+      this.transitionTo(nextIdx);
     },
 
     next() {
       if (state.slides.length === 0) return;
+      const isLast = this.idx === state.slides.length - 1;
+      if (isLast && !this.loop) return;
       const nextIdx = (this.idx + 1) % state.slides.length;
       this.transitionTo(nextIdx);
     },
 
     prev() {
       if (state.slides.length === 0) return;
+      const isFirst = this.idx === 0;
+      if (isFirst && !this.loop) return;
       const nextIdx = (this.idx - 1 + state.slides.length) % state.slides.length;
       this.transitionTo(nextIdx);
     },
@@ -495,6 +789,31 @@
   };
 
   // ---------- Wire events ----------
+  function closeMenu() {
+    els.menuPanel.classList.add('hidden');
+    els.menuBtn.setAttribute('aria-expanded', 'false');
+    els.menuPanel.setAttribute('aria-hidden', 'true');
+  }
+  function toggleMenu() {
+    const isOpen = !els.menuPanel.classList.contains('hidden');
+    if (isOpen) { closeMenu(); return; }
+    els.menuPanel.classList.remove('hidden');
+    els.menuBtn.setAttribute('aria-expanded', 'true');
+    els.menuPanel.setAttribute('aria-hidden', 'false');
+  }
+  els.menuBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(); });
+  els.menuPanel.addEventListener('click', (e) => {
+    if (e.target.closest('.menu-item')) closeMenu();
+  });
+  document.addEventListener('click', (e) => {
+    if (els.menuPanel.classList.contains('hidden')) return;
+    if (e.target.closest('#menuPanel') || e.target.closest('#menuBtn')) return;
+    closeMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !els.menuPanel.classList.contains('hidden')) closeMenu();
+  });
+
   els.addBtn.addEventListener('click', () => els.fileInput.click());
   els.fileInput.addEventListener('change', async (e) => {
     await handleFiles(e.target.files);
@@ -510,8 +829,26 @@
     e.target.value = '';
   });
 
-  els.totalDuration.addEventListener('input', updatePerSlideInfo);
-  els.transitionSelect.addEventListener('change', () => { /* used on Play */ });
+  els.totalDuration.addEventListener('input', () => {
+    updatePerSlideInfo();
+    const v = parseInt(els.totalDuration.value, 10);
+    if (v > 0) dbSetSetting('totalDuration', v).catch(() => {});
+  });
+  els.transitionSelect.addEventListener('change', () => {
+    dbSetSetting('transition', els.transitionSelect.value).catch(() => {});
+  });
+  els.loopCheckbox.addEventListener('change', () => {
+    player.loop = !!els.loopCheckbox.checked;
+    dbSetSetting('loop', els.loopCheckbox.checked).catch(() => {});
+  });
+
+  els.saveShowBtn.addEventListener('click', saveSlideshow);
+  els.loadShowBtn.addEventListener('click', () => els.showInput.click());
+  els.showInput.addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    await loadSlideshowFromFile(f);
+    e.target.value = '';
+  });
 
   els.playBtn.addEventListener('click', () => player.open());
   els.closePlayer.addEventListener('click', () => player.close());
@@ -534,6 +871,35 @@
   });
 
   // Init
-  updatePerSlideInfo();
-  renderGrid();
+  async function restoreFromDB() {
+    try {
+      const [records, settings] = await Promise.all([dbGetAllSlides(), dbGetAllSettings()]);
+      records.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      state.slides = records
+        .filter(r => r && r.blob instanceof Blob)
+        .map(r => slideFromRecord(r));
+
+      if (settings.transition && Array.from(els.transitionSelect.options).some(o => o.value === settings.transition)) {
+        els.transitionSelect.value = settings.transition;
+      }
+      if (typeof settings.totalDuration === 'number' && settings.totalDuration > 0) {
+        els.totalDuration.value = String(settings.totalDuration);
+      }
+      if (typeof settings.loop === 'boolean') {
+        els.loopCheckbox.checked = settings.loop;
+      }
+
+      renderGrid();
+      updatePerSlideInfo();
+      if (state.slides.length > 0) {
+        setStatus(`Restored ${state.slides.length} item(s) from browser storage.`);
+      }
+    } catch (err) {
+      console.warn('IndexedDB restore failed:', err);
+      renderGrid();
+      updatePerSlideInfo();
+    }
+  }
+
+  restoreFromDB();
 })();
