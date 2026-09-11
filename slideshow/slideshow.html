@@ -13,7 +13,7 @@
     body { font-family: 'JetBrains Mono', monospace; background-color: #0d1117; color: #c9d1d9; }
     .glow { text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
   </style>
-  <link rel="stylesheet" href="slideshow.css?v=6">
+  <link rel="stylesheet" href="slideshow.css?v=8">
 </head>
 <body class="flex flex-col items-center min-h-screen p-4 sm:p-6">
 
@@ -46,6 +46,12 @@
           <span class="menu-group-label">Slideshow (.zip)</span>
           <button id="saveShowBtn" class="menu-item" role="menuitem">Save slideshow</button>
           <button id="loadShowBtn" class="menu-item" role="menuitem">Load slideshow</button>
+        </div>
+
+        <div class="menu-group">
+          <span class="menu-group-label">Export video</span>
+          <button id="exportVideo1080Btn" class="menu-item" role="menuitem">1080p (1920×1080)</button>
+          <button id="exportVideo4KBtn" class="menu-item" role="menuitem">4K (3840×2160)</button>
         </div>
       </div>
 
@@ -119,10 +125,21 @@
     </div>
   </div>
 
+  <!-- Video export overlay -->
+  <div id="exportOverlay" class="export-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+    <div class="export-panel">
+      <h3 id="exportTitle">Exporting video</h3>
+      <p id="exportStatusText">Preparing…</p>
+      <div class="export-progress"><div id="exportProgressBar"></div></div>
+      <p id="exportHint">Keep this tab in focus while exporting. Long slideshows at 4K may take several minutes.</p>
+      <button id="cancelExportBtn" class="btn btn-ghost">Cancel</button>
+    </div>
+  </div>
+
   <footer class="mt-12 text-gray-600 text-sm">
     <p>© 2026 Tibor | Sr Java Dev</p>
   </footer>
 
-  <script src="slideshow.js?v=4" defer></script>
+  <script src="slideshow.js?v=9" defer></script>
 </body>
 </html>

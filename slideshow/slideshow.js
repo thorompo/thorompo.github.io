@@ -126,6 +126,12 @@
     importBtn: document.getElementById('importBtn'),
     saveShowBtn: document.getElementById('saveShowBtn'),
     loadShowBtn: document.getElementById('loadShowBtn'),
+    exportVideo1080Btn: document.getElementById('exportVideo1080Btn'),
+    exportVideo4KBtn: document.getElementById('exportVideo4KBtn'),
+    exportOverlay: document.getElementById('exportOverlay'),
+    exportStatusText: document.getElementById('exportStatusText'),
+    exportProgressBar: document.getElementById('exportProgressBar'),
+    cancelExportBtn: document.getElementById('cancelExportBtn'),
     playBtn: document.getElementById('playBtn'),
     transitionSelect: document.getElementById('transitionSelect'),
     totalDuration: document.getElementById('totalDuration'),
@@ -593,6 +599,293 @@
     }
   }
 
+  // ---------- Video export ----------
+  let exportInProgress = false;
+  let exportCancelled = false;
+
+  function pickVideoMime() {
+    if (!('MediaRecorder' in window)) return null;
+    // Prefer MP4/H.264 for the widest downstream compatibility (Photos,
+    // iMovie, WhatsApp, etc.). Modern Chrome/Safari support recording it;
+    // Firefox falls back to WebM automatically.
+    const list = [
+      'video/mp4;codecs=avc1.42E01F',
+      'video/mp4;codecs=avc1',
+      'video/mp4;codecs=h264',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+    return list.find(m => window.MediaRecorder.isTypeSupported(m)) || null;
+  }
+
+  function loadImageEl(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = url;
+    });
+  }
+
+  function loadVideoEl(url) {
+    return new Promise((resolve, reject) => {
+      const v = document.createElement('video');
+      v.src = url;
+      v.muted = true;
+      v.playsInline = true;
+      v.preload = 'auto';
+      v.crossOrigin = 'anonymous';
+      // Bail out if metadata never arrives (bad codec, corrupted file) so the
+      // whole export doesn't stall on a single dud entry.
+      const timer = setTimeout(() => resolve(v), 5000);
+      const done = () => { clearTimeout(timer); resolve(v); };
+      v.addEventListener('loadeddata', done, { once: true });
+      v.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Video load failed')); }, { once: true });
+    });
+  }
+
+  function drawContain(ctx, el, srcW, srcH, W, H, alpha) {
+    if (!srcW || !srcH) return;
+    // "contain" fit: preserve aspect, upscale small sources, downscale large
+    // ones, so that one side always touches the target edge.
+    const scale = Math.min(W / srcW, H / srcH);
+    const w = srcW * scale;
+    const h = srcH * scale;
+    const x = (W - w) / 2;
+    const y = (H - h) / 2;
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(el, x, y, w, h);
+    if (alpha !== 1) ctx.globalAlpha = 1;
+  }
+
+  function drawPrep(ctx, prep, W, H, alpha) {
+    drawContain(ctx, prep.el, prep.w, prep.h, W, H, alpha);
+  }
+
+  function renderTransitionFrame(ctx, name, cur, nxt, W, H, t) {
+    switch (name) {
+      case 'none':
+        drawPrep(ctx, t < 1 ? cur : nxt, W, H, 1);
+        return;
+      case 'fade':
+      case 'crossfade':
+        drawPrep(ctx, cur, W, H, 1 - t);
+        drawPrep(ctx, nxt, W, H, t);
+        return;
+      case 'slide-left':
+        ctx.save(); ctx.translate(-t * W, 0); drawPrep(ctx, cur, W, H, 1); ctx.restore();
+        ctx.save(); ctx.translate((1 - t) * W, 0); drawPrep(ctx, nxt, W, H, 1); ctx.restore();
+        return;
+      case 'slide-up':
+        ctx.save(); ctx.translate(0, -t * H); drawPrep(ctx, cur, W, H, 1); ctx.restore();
+        ctx.save(); ctx.translate(0, (1 - t) * H); drawPrep(ctx, nxt, W, H, 1); ctx.restore();
+        return;
+      case 'zoom': {
+        const s1 = 1 + t * 0.15;
+        const s2 = 0.85 + t * 0.15;
+        ctx.save();
+        ctx.translate(W / 2, H / 2); ctx.scale(s1, s1); ctx.translate(-W / 2, -H / 2);
+        drawPrep(ctx, cur, W, H, 1 - t);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(W / 2, H / 2); ctx.scale(s2, s2); ctx.translate(-W / 2, -H / 2);
+        drawPrep(ctx, nxt, W, H, t);
+        ctx.restore();
+        return;
+      }
+      default:
+        drawPrep(ctx, cur, W, H, 1 - t);
+        drawPrep(ctx, nxt, W, H, t);
+    }
+  }
+
+  function showExportOverlay(show) {
+    if (show) els.exportOverlay.classList.remove('hidden');
+    else els.exportOverlay.classList.add('hidden');
+  }
+
+  function updateExportUI(text, pct) {
+    els.exportStatusText.textContent = text;
+    els.exportProgressBar.style.width = `${Math.min(100, Math.max(0, pct * 100)).toFixed(1)}%`;
+  }
+
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  }
+
+  async function exportVideo(width, height) {
+    if (exportInProgress) return;
+    if (state.slides.length === 0) { setStatus('Nothing to export.', true); return; }
+    const mime = pickVideoMime();
+    if (!mime) { setStatus('MediaRecorder is not supported in this browser.', true); return; }
+
+    exportInProgress = true;
+    exportCancelled = false;
+    showExportOverlay(true);
+    updateExportUI('Preparing media…', 0);
+
+    const prepared = [];
+    try {
+      for (let i = 0; i < state.slides.length; i++) {
+        if (exportCancelled) throw new Error('cancelled');
+        const s = state.slides[i];
+        const pct = ((i + 1) / state.slides.length) * 0.08;
+        updateExportUI(`Preparing media (${i + 1}/${state.slides.length})…`, pct);
+        if (s.type === 'image') {
+          const img = await loadImageEl(s.url);
+          prepared.push({ kind: 'image', el: img, w: img.naturalWidth, h: img.naturalHeight });
+        } else {
+          const v = await loadVideoEl(s.url);
+          prepared.push({ kind: 'video', el: v, w: v.videoWidth || 1, h: v.videoHeight || 1 });
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw first frame before starting recorder so the stream has a keyframe.
+      drawPrep(ctx, prepared[0], width, height, 1);
+      // Use setTimeout instead of requestAnimationFrame so rendering keeps
+      // going even if the tab loses focus / is throttled.
+      await new Promise(r => setTimeout(r, 30));
+
+      const fps = 30;
+      const stream = canvas.captureStream(fps);
+      // High-quality bitrates so slideshows keep source detail: aim well above
+      // typical streaming presets. Actual encoder may clamp lower on some GPUs.
+      const bitrate = height >= 2160
+        ? 80_000_000
+        : (height >= 1080 ? 25_000_000 : 10_000_000);
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+      const totalMs = Math.max(1000, (parseInt(els.totalDuration.value, 10) || 30) * 1000);
+      const perSlideMs = totalMs / prepared.length;
+      const transitionName = els.transitionSelect.value;
+      const transitionMs = transitionName === 'none' ? 0 : Math.min(600, Math.max(150, perSlideMs * 0.2));
+
+      // Start first video slide (if any) — fire-and-forget so a hanging
+      // play() promise (e.g. HEVC MOV in Chromium) doesn't stall the loop.
+      let playingIdx = -1;
+      const startSlideVideo = (i) => {
+        if (i < 0 || i >= prepared.length) return;
+        if (prepared[i].kind !== 'video') return;
+        if (playingIdx === i) return;
+        try {
+          prepared[i].el.currentTime = 0;
+          const p = prepared[i].el.play();
+          if (p && typeof p.catch === 'function') p.catch(() => { /* autoplay/codec fallback */ });
+          playingIdx = i;
+        } catch (e) { /* noop */ }
+      };
+      const pauseSlideVideo = (i) => {
+        if (i < 0 || i >= prepared.length) return;
+        if (prepared[i].kind !== 'video') return;
+        try { prepared[i].el.pause(); } catch (e) { /* noop */ }
+      };
+      startSlideVideo(0);
+
+      recorder.start();
+      const startTime = performance.now();
+      let currentIdx = 0;
+      let lastTick = -1;
+
+      await new Promise((resolve) => {
+        const frameIntervalMs = 1000 / fps;
+        const frame = () => {
+          if (exportCancelled) { resolve(); return; }
+          const now = performance.now();
+          const elapsed = now - startTime;
+          if (elapsed >= totalMs) { resolve(); return; }
+
+          const rawIdx = Math.min(prepared.length - 1, Math.floor(elapsed / perSlideMs));
+          const inSlide = elapsed - rawIdx * perSlideMs;
+          const transStart = perSlideMs - transitionMs;
+          const isTransitioning = transitionMs > 0 && rawIdx < prepared.length - 1 && inSlide >= transStart;
+
+          if (rawIdx !== currentIdx) {
+            pauseSlideVideo(currentIdx);
+            currentIdx = rawIdx;
+            startSlideVideo(currentIdx);
+          }
+          if (isTransitioning) startSlideVideo(rawIdx + 1);
+
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, width, height);
+
+          if (isTransitioning) {
+            const t = (inSlide - transStart) / transitionMs;
+            renderTransitionFrame(ctx, transitionName, prepared[rawIdx], prepared[rawIdx + 1], width, height, t);
+          } else {
+            drawPrep(ctx, prepared[rawIdx], width, height, 1);
+          }
+
+          const tick = Math.floor(elapsed / 250);
+          if (tick !== lastTick) {
+            lastTick = tick;
+            const secs = (elapsed / 1000);
+            const total = (totalMs / 1000);
+            const remaining = Math.max(0, total - secs);
+            const phaseProgress = 0.10 + (elapsed / totalMs) * 0.82;
+            updateExportUI(
+              `Rendering slide ${rawIdx + 1}/${prepared.length} · ${secs.toFixed(1)}s / ${total.toFixed(1)}s (≈ ${remaining.toFixed(1)}s left)`,
+              phaseProgress
+            );
+          }
+
+          setTimeout(frame, frameIntervalMs);
+        };
+        setTimeout(frame, 0);
+      });
+
+      prepared.forEach((p, i) => pauseSlideVideo(i));
+
+      updateExportUI('Finalizing…', 0.95);
+      const stopped = new Promise(r => { recorder.onstop = r; });
+      try { recorder.stop(); } catch (e) { /* noop */ }
+      await stopped;
+
+      if (exportCancelled) throw new Error('cancelled');
+
+      const outMime = chunks[0] && chunks[0].type ? chunks[0].type : mime;
+      const blob = new Blob(chunks, { type: outMime });
+      const ext = outMime.includes('mp4') ? 'mp4' : 'webm';
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      triggerDownload(blob, `slideshow-${width}x${height}-${stamp}.${ext}`);
+
+      const mb = (blob.size / (1024 * 1024)).toFixed(1);
+      setStatus(`Exported ${width}×${height} video (${mb} MB).`);
+    } catch (e) {
+      if (e && e.message === 'cancelled') {
+        setStatus('Video export cancelled.');
+      } else {
+        console.error(e);
+        setStatus(`Video export failed: ${e.message || e}`, true);
+      }
+    } finally {
+      // Release videos
+      prepared.forEach(p => { if (p.kind === 'video') { try { p.el.pause(); p.el.src = ''; p.el.load && p.el.load(); } catch (err) { /* noop */ } } });
+      showExportOverlay(false);
+      exportInProgress = false;
+    }
+  }
+
   // ---------- Player ----------
   const player = {
     idx: 0,
@@ -849,6 +1142,10 @@
     await loadSlideshowFromFile(f);
     e.target.value = '';
   });
+
+  els.exportVideo1080Btn.addEventListener('click', () => exportVideo(1920, 1080));
+  els.exportVideo4KBtn.addEventListener('click', () => exportVideo(3840, 2160));
+  els.cancelExportBtn.addEventListener('click', () => { exportCancelled = true; });
 
   els.playBtn.addEventListener('click', () => player.open());
   els.closePlayer.addEventListener('click', () => player.close());
