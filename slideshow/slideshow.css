@@ -1,0 +1,204 @@
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.btn-primary {
+  background-color: #0ea5e9;
+  color: #0d1117;
+}
+.btn-primary:hover { background-color: #38bdf8; transform: translateY(-1px); }
+.btn-primary:disabled { background-color: #334155; color: #64748b; cursor: not-allowed; transform: none; }
+.btn-ghost {
+  background-color: transparent;
+  color: #c9d1d9;
+  border-color: #374151;
+}
+.btn-ghost:hover { border-color: #38bdf8; color: #38bdf8; }
+
+/* Toolbar controls */
+.ctrl {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+}
+.ctrl-label {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ctrl-input {
+  background-color: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #374151;
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  min-width: 8rem;
+}
+.ctrl-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+#totalDuration { width: 6rem; min-width: 0; }
+
+/* Grid tiles */
+#grid .tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background-color: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 0.6rem;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+#grid .tile:active { cursor: grabbing; }
+#grid .tile.sortable-ghost { opacity: 0.35; }
+#grid .tile.sortable-chosen { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,0.35); }
+#grid .tile img,
+#grid .tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+#grid .tile .badge {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  background: rgba(0,0,0,0.65);
+  color: #e5e7eb;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+#grid .tile .idx {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  background: rgba(14,165,233,0.9);
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.3rem;
+}
+#grid .tile .name {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.7rem;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  color: #e5e7eb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#grid .tile .remove-btn {
+  position: absolute;
+  bottom: 0.35rem;
+  right: 0.35rem;
+  background: rgba(239,68,68,0.9);
+  color: #fff;
+  border: none;
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+#grid .tile:hover .remove-btn { opacity: 1; }
+#grid .tile .loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #94a3b8; font-size: 0.75rem;
+}
+
+/* Player overlay */
+#player {
+  position: fixed;
+  inset: 0;
+  background-color: #000;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+/* Tailwind's .hidden loses to #player on specificity, so force it here. */
+#player.hidden { display: none !important; }
+#stage {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+.slide-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 600ms ease, transform 600ms ease;
+  will-change: opacity, transform;
+}
+.slide-layer.active { opacity: 1; z-index: 2; }
+.slide-layer.behind { z-index: 1; }
+.slide-layer img,
+.slide-layer video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Transitions */
+.t-fade    .slide-layer                 { transition: opacity 500ms ease; }
+.t-cross   .slide-layer                 { transition: opacity 800ms ease; }
+.t-slide-l .slide-layer                 { transition: opacity 500ms ease, transform 500ms ease; }
+.t-slide-l .slide-layer.enter           { transform: translateX(100%); opacity: 1; }
+.t-slide-l .slide-layer.active          { transform: translateX(0); }
+.t-slide-l .slide-layer.exit            { transform: translateX(-100%); opacity: 1; }
+.t-slide-u .slide-layer                 { transition: opacity 500ms ease, transform 500ms ease; }
+.t-slide-u .slide-layer.enter           { transform: translateY(100%); opacity: 1; }
+.t-slide-u .slide-layer.active          { transform: translateY(0); }
+.t-slide-u .slide-layer.exit            { transform: translateY(-100%); opacity: 1; }
+.t-zoom    .slide-layer                 { transition: opacity 600ms ease, transform 600ms ease; }
+.t-zoom    .slide-layer.enter           { transform: scale(0.85); opacity: 0; }
+.t-zoom    .slide-layer.active          { transform: scale(1); opacity: 1; }
+.t-zoom    .slide-layer.exit            { transform: scale(1.15); opacity: 0; }
+.t-none    .slide-layer                 { transition: none; }
+
+#playerHud {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(13,17,23,0.9);
+  border-top: 1px solid #1f2937;
+}
+.hud-btn {
+  background: transparent;
+  color: #e5e7eb;
+  border: 1px solid #374151;
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.hud-btn:hover { border-color: #38bdf8; color: #38bdf8; }
