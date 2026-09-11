@@ -233,6 +233,20 @@
     return null;
   }
 
+  // iPhone .mov files are typically MP4 wrapped in a QuickTime container.
+  // Chromium parses the audio track more reliably when the blob is served as
+  // video/mp4 instead of video/quicktime, so we relabel them at intake and on
+  // restore.
+  function normalizeVideoBlob(blob, name) {
+    if (!blob) return blob;
+    const t = (blob.type || '').toLowerCase();
+    const isMov = /\.(mov|qt)$/i.test(name || '');
+    if (t === 'video/quicktime' || (isMov && !t)) {
+      return blob.slice(0, blob.size, 'video/mp4');
+    }
+    return blob;
+  }
+
   async function fileToBlobRecord(file) {
     const type = detectType(file);
     if (!type) throw new Error(`Unsupported file: ${file.name}`);
@@ -251,11 +265,14 @@
       }
     }
 
+    if (type === 'video') blob = normalizeVideoBlob(blob, file.name);
+
     return { name: file.name, type, blob };
   }
 
   function slideFromRecord(rec) {
-    const url = URL.createObjectURL(rec.blob);
+    const blob = rec.type === 'video' ? normalizeVideoBlob(rec.blob, rec.name) : rec.blob;
+    const url = URL.createObjectURL(blob);
     return {
       id: rec.id,
       name: rec.name,
@@ -801,6 +818,8 @@
     updateExportUI('Preparing media…', 0);
 
     const prepared = [];
+    let audioCtx = null;
+    let audioDest = null;
     try {
       for (let i = 0; i < state.slides.length; i++) {
         if (exportCancelled) throw new Error('cancelled');
@@ -832,13 +851,47 @@
       await new Promise(r => setTimeout(r, 30));
 
       const fps = 30;
-      const stream = canvas.captureStream(fps);
+      const videoStream = canvas.captureStream(fps);
       // High-quality bitrates so slideshows keep source detail: aim well above
       // typical streaming presets. Actual encoder may clamp lower on some GPUs.
       const bitrate = height >= 2160
         ? 80_000_000
         : (height >= 1080 ? 25_000_000 : 10_000_000);
-      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate });
+
+      // Build audio graph so each video's audio flows through a GainNode we
+      // can toggle per slide. This adds an audio track to the recorded stream.
+      const audioGates = new Array(prepared.length).fill(null);
+      const hasAnyVideo = prepared.some(p => p.kind === 'video');
+      if (hasAnyVideo && typeof (window.AudioContext || window.webkitAudioContext) === 'function') {
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) { /* noop */ } }
+          audioDest = audioCtx.createMediaStreamDestination();
+          prepared.forEach((p, i) => {
+            if (p.kind !== 'video') return;
+            try {
+              p.el.muted = false;
+              p.el.crossOrigin = 'anonymous';
+              const src = audioCtx.createMediaElementSource(p.el);
+              const gain = audioCtx.createGain();
+              gain.gain.value = 0;
+              src.connect(gain).connect(audioDest);
+              audioGates[i] = gain;
+            } catch (err) {
+              console.warn('Audio graph failed for slide', i, err);
+            }
+          });
+        } catch (err) {
+          console.warn('AudioContext unavailable, exporting without sound:', err);
+          audioCtx = null;
+          audioDest = null;
+        }
+      }
+
+      const recorderStream = audioDest
+        ? new MediaStream([...videoStream.getVideoTracks(), ...audioDest.stream.getAudioTracks()])
+        : videoStream;
+      const recorder = new MediaRecorder(recorderStream, { mimeType: mime, videoBitsPerSecond: bitrate });
       const chunks = [];
       recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
@@ -861,6 +914,12 @@
       // Start first video slide (if any) — fire-and-forget so a hanging
       // play() promise (e.g. HEVC MOV in Chromium) doesn't stall the loop.
       let playingIdx = -1;
+      const setActiveAudio = (i) => {
+        for (let k = 0; k < audioGates.length; k++) {
+          const g = audioGates[k];
+          if (g) g.gain.value = (k === i ? 1 : 0);
+        }
+      };
       const startSlideVideo = (i) => {
         if (i < 0 || i >= prepared.length) return;
         if (prepared[i].kind !== 'video') return;
@@ -869,6 +928,7 @@
           prepared[i].el.currentTime = 0;
           const p = prepared[i].el.play();
           if (p && typeof p.catch === 'function') p.catch(() => { /* autoplay/codec fallback */ });
+          setActiveAudio(i);
           playingIdx = i;
         } catch (e) { /* noop */ }
       };
@@ -956,8 +1016,9 @@
         setStatus(`Video export failed: ${e.message || e}`, true);
       }
     } finally {
-      // Release videos
+      // Release videos and audio
       prepared.forEach(p => { if (p.kind === 'video') { try { p.el.pause(); p.el.src = ''; p.el.load && p.el.load(); } catch (err) { /* noop */ } } });
+      try { if (audioCtx && audioCtx.close) audioCtx.close(); } catch (err) { /* noop */ }
       showExportOverlay(false);
       exportInProgress = false;
     }
@@ -1048,7 +1109,9 @@
       }
       const video = document.createElement('video');
       video.src = slide.url;
-      video.muted = true;
+      // The user just clicked Play, so autoplay with sound should be allowed.
+      // A fallback in the play() call re-tries muted if the browser still refuses.
+      video.muted = false;
       video.playsInline = true;
       video.autoplay = true;
       video.controls = false;
@@ -1071,7 +1134,10 @@
       this.updateCounter();
       if (node.tagName === 'VIDEO') {
         this.currentVideo = node;
-        node.play().catch(() => { /* autoplay blocked, ignored */ });
+        node.play().catch(() => {
+          node.muted = true;
+          node.play().catch(() => { /* give up silently */ });
+        });
       }
       this.scheduleNext();
     },
@@ -1136,7 +1202,10 @@
 
       if (node.tagName === 'VIDEO') {
         this.currentVideo = node;
-        node.play().catch(() => { /* ignored */ });
+        node.play().catch(() => {
+          node.muted = true;
+          node.play().catch(() => { /* give up silently */ });
+        });
       }
 
       this.scheduleNext();
